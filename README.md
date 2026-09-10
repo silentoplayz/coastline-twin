@@ -60,15 +60,19 @@ What the page does:
   map view.
 - **Search the planet.** Progress shows tiles done and the time left. Cancel at
   any point. When it finishes the matches appear as cards and as numbered pins
-  on the map, each with the matched square drawn on it. Click a card to fly
-  there. The other tabs hold the contact sheet and the downloadable files.
+  on a MapLibre globe, each with the matched square drawn on it. Click a card
+  to fly there, or press Compare to see home and match side by side on real
+  map imagery with the match rotated, mirrored, and scaled to line up. The
+  other tabs hold the contact sheet and the downloadable files.
 - **Runs.** Every run is kept under `results/` and listed in the Runs dialog,
   where you can reopen or delete it. A run that is still going when you reload
   the page reattaches automatically.
 
 Geocoding goes to Nominatim first and falls back to Photon, both OpenStreetMap
-based, both free for light personal use. Map tiles come from OpenStreetMap.
-Everything else runs locally.
+based, both free for light personal use. The map is MapLibre GL JS on
+OpenFreeMap vector tiles. Everything else runs locally. The local app and the
+website share `docs/geo.js` and `docs/style.css`, which the server serves
+under `/static`.
 
 ## Command line
 
@@ -170,7 +174,7 @@ coastline_twin/
   report.py       reverse geocoding, contact sheet, JSON, GeoJSON, HTML
   cli.py          argument parsing and the run
   web/server.py   FastAPI: geocoding proxy, previews, runs as subprocesses
-  web/static/     the local app (Leaflet map, vanilla JS, no build step)
+  web/static/     the local app (MapLibre map, vanilla JS, no build step)
 docs/
   index.html      the GitHub Pages app
   app.js          coordinator: map, form, workers, results, saved runs

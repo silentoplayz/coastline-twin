@@ -101,6 +101,8 @@ def main(argv=None):
                 "tiles": n_tiles,
                 "variants": n_variants,
                 "dot_xy_m": template.dot_xy,
+                "n": template.n,
+                "land": "".join("1" if v else "0" for v in template.land.ravel()),
             }
         )
     )
@@ -165,7 +167,7 @@ def main(argv=None):
             "min_score": cfg.min_score,
         },
     }
-    report.write_json(matches, meta, out_dir / "matches.json")
+    report.write_json(template, matches, meta, out_dir / "matches.json")
     report.write_geojson(template, matches, out_dir / "matches.geojson")
     report.render_sheet(template, matches, out_dir / "matches.png")
     report.write_html(template, matches, meta, out_dir / "report.html", "matches.png", "template.png")

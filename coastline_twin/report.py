@@ -96,7 +96,9 @@ def render_sheet(template, matches, path, max_rows=12):
     plt.close(fig)
 
 
-def write_json(matches, meta, path):
+def write_json(template, matches, meta, path):
+    for m in matches:
+        m["window"] = "".join("1" if v else "0" for v in sample_match(template, m).ravel())
     Path(path).write_text(json.dumps({"meta": meta, "matches": matches}, indent=2))
 
 

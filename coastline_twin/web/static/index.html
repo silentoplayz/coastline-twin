@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
+<meta name="description" content="Take a square of the coastline around your home and find the places on Earth whose coastline lines up with it. Runs entirely in your browser.">
 <title>Coastline Twin</title>
 <script>
   try {
@@ -14,7 +15,7 @@
     }
   } catch (e) {}
 </script>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css">
 <link rel="stylesheet" href="/static/style.css">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23145a86'/%3E%3Cpath d='M4 22c4-2 6-8 10-8s6 8 10 8 4-4 4-4v10H4z' fill='%23d9c9a3'/%3E%3Ccircle cx='17' cy='15' r='3' fill='%23d62728'/%3E%3C/svg%3E">
 </head>
@@ -26,6 +27,7 @@
     <span class="brand-tag">find the coast that matches yours</span>
   </div>
   <div class="topbar-actions">
+    <a class="ghost" href="https://github.com/silentoplayz/coastline-twin" target="_blank" rel="noopener" style="padding:7px 10px;text-decoration:none;color:var(--text)">GitHub</a>
     <button type="button" id="runs-button" class="ghost">Runs <span id="runs-count" class="count"></span></button>
     <button type="button" id="theme-toggle" class="ghost icon" aria-label="Toggle color scheme" title="Toggle light or dark">
       <span class="sun" aria-hidden="true">☀</span><span class="moon" aria-hidden="true">☾</span>
@@ -35,6 +37,10 @@
 
 <main class="layout">
   <aside class="sidebar">
+    <div class="hero">
+      <b>Where else on Earth does your coastline exist?</b>
+      <p>Drop a pin on your home. A square of coastline around it is compared with every coast on the planet, rotated, mirrored, and resized, and the best overlays are ranked. Wherever your dot lands on a match is where you would "move" to. The search runs on this machine at full resolution.</p>
+    </div>
     <form id="search-form" autocomplete="off" novalidate>
       <section class="panel">
         <h2>Where you live</h2>
@@ -54,7 +60,7 @@
         <h2>The square</h2>
         <label class="range-row">
           <span>Side <output id="side-out">60</output> km</span>
-          <input type="range" id="side-km" min="10" max="400" step="5" value="60">
+          <input type="range" id="side-km" min="20" max="400" step="5" value="60">
         </label>
         <div class="choice-row" role="radiogroup" aria-label="Square center">
           <label><input type="radio" name="center-mode" value="home" checked> Centered on the pin</label>
@@ -62,7 +68,7 @@
         </div>
         <div id="preview" class="preview">
           <div class="preview-image">
-            <img id="preview-img" alt="" hidden>
+            <canvas id="preview-canvas" hidden></canvas>
             <div id="preview-empty" class="preview-empty">Set a location to preview the square.</div>
           </div>
           <dl id="preview-stats" class="stats" hidden>
@@ -142,6 +148,7 @@
         <progress id="status-progress" max="100" value="0"></progress>
         <p id="status-text" class="muted small"></p>
       </section>
+      <p class="notice">Land mask: GLOBE 30 arc-second via global-land-mask. Geocoding: Photon and Nominatim (OpenStreetMap). Map: MapLibre GL with OpenFreeMap vector tiles.</p>
     </form>
   </aside>
 
@@ -167,11 +174,11 @@
       <ol id="match-list" class="matches"></ol>
     </div>
     <div id="tab-sheet" class="tab-page" hidden>
-      <img id="sheet-img" alt="Contact sheet of matches">
+      <div id="sheet" class="sheet"></div>
     </div>
     <div id="tab-files" class="tab-page" hidden>
       <ul id="file-list" class="files"></ul>
-      <p class="muted small">Drop the GeoJSON on <a href="https://geojson.io" target="_blank" rel="noopener">geojson.io</a> to see every square on a map.</p>
+      <p class="muted small">Files live under the results folder of this run. Drop the GeoJSON on <a href="https://geojson.io" target="_blank" rel="noopener">geojson.io</a> to see every square on a map.</p>
     </div>
   </aside>
 </main>
@@ -188,9 +195,32 @@
   <p id="runs-empty" class="muted" hidden>No runs yet.</p>
 </dialog>
 
+<dialog id="compare-dialog" class="compare" closedby="any">
+  <div class="dialog-head">
+    <div>
+      <h2 id="compare-title"></h2>
+      <p id="compare-meta" class="muted small"></p>
+    </div>
+    <div class="compare-controls">
+      <label class="check"><input type="checkbox" id="compare-coast" checked> Home coastline</label>
+      <label class="check"><input type="checkbox" id="compare-labels" checked> Labels</label>
+      <label class="check zoomer">Zoom <input type="range" id="compare-zoom" min="-2" max="2" step="0.25" value="0"></label>
+      <button type="button" id="compare-prev" class="ghost small" title="Previous match">‹</button>
+      <button type="button" id="compare-next" class="ghost small" title="Next match">›</button>
+      <button type="button" id="compare-close" class="ghost icon" aria-label="Close">×</button>
+    </div>
+  </div>
+  <div class="compare-maps">
+    <div class="compare-pane"><div id="compare-home" class="compare-map"></div><span class="caption" id="compare-home-caption">Home</span></div>
+    <div class="compare-pane"><div id="compare-match" class="compare-map"></div><span class="caption" id="compare-match-caption"></span></div>
+  </div>
+  <p class="notice">The match is rotated, mirrored, and scaled so its coastline sits the way yours does. Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors, © <a href="https://openmaptiles.org/" target="_blank" rel="noopener">OpenMapTiles</a>, tiles by <a href="https://openfreemap.org/" target="_blank" rel="noopener">OpenFreeMap</a>.</p>
+</dialog>
+
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+<script src="/static/geo.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>

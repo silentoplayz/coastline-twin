@@ -387,5 +387,15 @@ def index():
     return FileResponse(STATIC / "index.html")
 
 
+@app.get("/static/geo.js")
+def shared_geo():
+    return FileResponse(ROOT / "docs" / "geo.js", media_type="application/javascript")
+
+
+@app.get("/static/style.css")
+def shared_style():
+    return FileResponse(ROOT / "docs" / "style.css", media_type="text/css")
+
+
 app.mount("/results", StaticFiles(directory=RESULTS), name="results")
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
