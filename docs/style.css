@@ -310,3 +310,11 @@ dialog.compare .notice { padding: 8px 0 0; margin: 0; }
 dialog.tips { width: min(720px, 92vw); max-height: 88vh; overflow-y: auto; }
 .tips-list { margin: 0; padding-left: 22px; font-size: 14px; line-height: 1.5; }
 .tips-list li { margin-bottom: 10px; }
+
+.layers-control { position: absolute; top: 12px; right: 12px; z-index: 500; }
+.layers-control > button { background: var(--panel); box-shadow: var(--shadow); }
+.layers-panel { position: absolute; right: 0; top: 40px; width: 230px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); padding: 10px 12px; font-size: 13px; }
+.layers-group { margin-bottom: 8px; }
+.layers-group b { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 4px; }
+.layers-options { display: flex; flex-direction: column; gap: 3px; }
+.layers-options label { display: flex; align-items: center; gap: 7px; cursor: pointer; }

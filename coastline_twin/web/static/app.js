@@ -21,6 +21,32 @@
   }
 
   const STYLES = { light: "https://tiles.openfreemap.org/styles/positron", dark: "https://tiles.openfreemap.org/styles/dark" };
+  const BASEMAPS = {
+    auto: { name: "Match the theme" },
+    positron: { name: "Light", style: "https://tiles.openfreemap.org/styles/positron" },
+    dark: { name: "Dark", style: "https://tiles.openfreemap.org/styles/dark" },
+    liberty: { name: "Streets", style: "https://tiles.openfreemap.org/styles/liberty" },
+    bright: { name: "Bright", style: "https://tiles.openfreemap.org/styles/bright" },
+    fiord: { name: "Fiord", style: "https://tiles.openfreemap.org/styles/fiord" },
+    topo: { name: "Topographic", raster: { tiles: ["https://a.tile.opentopomap.org/{z}/{x}/{y}.png", "https://b.tile.opentopomap.org/{z}/{x}/{y}.png", "https://c.tile.opentopomap.org/{z}/{x}/{y}.png"], maxzoom: 17, attribution: 'Map data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, SRTM · Style © <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA)' } },
+    satellite: { name: "Satellite", raster: { tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"], maxzoom: 19, attribution: "Imagery © Esri, Maxar, Earthstar Geographics, and the GIS User Community" } },
+    bluemarble: { name: "Blue Marble", raster: { tiles: ["https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/BlueMarble_ShadedRelief_Bathymetry/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpeg"], maxzoom: 8, attribution: "NASA Blue Marble via Global Imagery Browse Services" } },
+  };
+  const DEM = { type: "raster-dem", tiles: ["https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"], encoding: "terrarium", tileSize: 256, maxzoom: 15, attribution: "Elevation: Mapzen Terrain Tiles on AWS" };
+  const LAYERS_KEY = "coastline-twin-layers";
+  const layerPrefs = { basemap: "auto", hillshade: false, terrain: false, mask: false };
+  try { Object.assign(layerPrefs, JSON.parse(localStorage.getItem(LAYERS_KEY) || "{}")); } catch (e) {}
+  if (!BASEMAPS[layerPrefs.basemap]) layerPrefs.basemap = "auto";
+  function saveLayerPrefs() { try { localStorage.setItem(LAYERS_KEY, JSON.stringify(layerPrefs)); } catch (e) {} }
+  function rasterStyle(r) {
+    return { version: 8, sources: { basemap: { type: "raster", tiles: r.tiles, tileSize: 256, maxzoom: r.maxzoom, attribution: r.attribution } }, layers: [{ id: "basemap", type: "raster", source: "basemap" }] };
+  }
+  function styleKey(scheme) { return layerPrefs.basemap === "auto" ? `auto:${scheme}` : layerPrefs.basemap; }
+  function styleFor(scheme) {
+    const b = BASEMAPS[layerPrefs.basemap];
+    if (!b || !b.style && !b.raster) return STYLES[scheme];
+    return b.style || rasterStyle(b.raster);
+  }
   const overlays = {
     "home-square": { type: "FeatureCollection", features: [] },
     "bbox": { type: "FeatureCollection", features: [] },
@@ -32,7 +58,7 @@
   const noop = () => undefined;
   const nullMap = new Proxy({}, { get: (_, key) => (key === "getSource" || key === "getLayer" ? noop : key === "getBounds" ? () => null : key === "getZoom" ? () => 2 : key === "getContainer" ? () => $("map") : noop) });
   const map = webgl ? new maplibregl.Map({
-    container: "map", style: STYLES[currentScheme()], center: [-20, 30], zoom: 1.6,
+    container: "map", style: styleFor(currentScheme()), center: [-20, 30], zoom: 1.6,
     attributionControl: { compact: true }, canvasContextAttributes: { antialias: true },
   }) : nullMap;
   if (!webgl) {
@@ -43,6 +69,13 @@
   if (webgl && maplibregl.GlobeControl) map.addControl(new maplibregl.GlobeControl(), "top-left");
   map.on("style.load", () => {
     map.setProjection({ type: "globe" });
+    const firstSymbol = (map.getStyle().layers.find((l) => l.type === "symbol") || {}).id;
+    if (!map.getSource("dem")) map.addSource("dem", DEM);
+    if (!map.getLayer("hillshade")) map.addLayer({ id: "hillshade", type: "hillshade", source: "dem", layout: { visibility: layerPrefs.hillshade ? "visible" : "none" }, paint: { "hillshade-exaggeration": 0.45, "hillshade-shadow-color": "#1b1b1b", "hillshade-highlight-color": "#ffffff" } }, firstSymbol);
+    if (!map.getSource("mask")) map.addSource("mask", { type: "image", url: BLANK_PNG, coordinates: [[-1, 1], [1, 1], [1, -1], [-1, -1]] });
+    if (!map.getLayer("mask")) map.addLayer({ id: "mask", type: "raster", source: "mask", layout: { visibility: layerPrefs.mask ? "visible" : "none" }, paint: { "raster-opacity": 0.55, "raster-resampling": "nearest", "raster-fade-duration": 0 } }, firstSymbol);
+    map.setTerrain(layerPrefs.terrain ? { source: "dem", exaggeration: 1.2 } : null);
+    if (layerPrefs.mask) refreshMask();
     for (const [id, paint] of [
       ["home-square", { "line-color": "#d62728", "line-width": 2, "line-dasharray": [3, 2] }],
       ["bbox", { "line-color": "#1f77b4", "line-width": 1, "line-dasharray": [1, 3] }],
@@ -53,6 +86,64 @@
     }
     if (!map.getLayer("bbox-fill")) map.addLayer({ id: "bbox-fill", type: "fill", source: "bbox", paint: { "fill-color": "#1f77b4", "fill-opacity": 0.05 } }, "bbox");
   });
+  async function fetchMaskImage(req) {
+    return `/api/mask.png?w=${req.w}&s=${req.s}&e=${req.e}&n=${req.n}&width=${req.width}&height=${req.height}`;
+  }
+  const BLANK_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+  const mercY = (lat) => Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
+  let maskTimer = null, maskSeq = 0, maskUrl = null;
+  async function refreshMask() {
+    if (!layerPrefs.mask || !webgl) return;
+    const b = map.getBounds();
+    if (!b) return;
+    const w = Math.max(-180, b.getWest()), e = Math.min(180, b.getEast()), s = Math.max(-85, b.getSouth()), n = Math.min(85, b.getNorth());
+    if (e <= w || n <= s) return;
+    const width = 768;
+    const height = Math.min(1024, Math.max(64, Math.round(width * (mercY(n) - mercY(s)) / ((e - w) * Math.PI / 180))));
+    const seq = ++maskSeq;
+    try {
+      const url = await fetchMaskImage({ w, s, e, n, width, height });
+      if (seq !== maskSeq) { if (url.startsWith("blob:")) URL.revokeObjectURL(url); return; }
+      const src = map.getSource("mask");
+      if (src) src.updateImage({ url, coordinates: [[w, n], [e, n], [e, s], [w, s]] });
+      if (maskUrl && maskUrl.startsWith("blob:")) URL.revokeObjectURL(maskUrl);
+      maskUrl = url;
+    } catch (err) {
+      toast(`Land mask overlay failed: ${err.message}`);
+    }
+  }
+  map.on("moveend", () => { clearTimeout(maskTimer); maskTimer = setTimeout(refreshMask, 250); });
+  function applyLayerPrefs() {
+    saveLayerPrefs();
+    if (!webgl) return;
+    if (map.getLayer("hillshade")) map.setLayoutProperty("hillshade", "visibility", layerPrefs.hillshade ? "visible" : "none");
+    if (map.getLayer("mask")) map.setLayoutProperty("mask", "visibility", layerPrefs.mask ? "visible" : "none");
+    if (map.getSource("dem")) map.setTerrain(layerPrefs.terrain ? { source: "dem", exaggeration: 1.2 } : null);
+    if (layerPrefs.mask) refreshMask();
+    applyTiles();
+  }
+  function buildLayersPanel() {
+    const group = $("basemap-options");
+    if (!group) return;
+    group.innerHTML = "";
+    for (const [key, b] of Object.entries(BASEMAPS)) {
+      const label = document.createElement("label");
+      label.innerHTML = `<input type="radio" name="basemap" value="${key}"> ${b.name}`;
+      label.querySelector("input").checked = layerPrefs.basemap === key;
+      label.querySelector("input").addEventListener("change", () => { layerPrefs.basemap = key; applyLayerPrefs(); });
+      group.appendChild(label);
+    }
+    for (const [id, key] of [["layer-hillshade", "hillshade"], ["layer-terrain", "terrain"], ["layer-mask", "mask"]]) {
+      const el = $(id);
+      el.checked = !!layerPrefs[key];
+      el.addEventListener("change", () => { layerPrefs[key] = el.checked; applyLayerPrefs(); });
+    }
+    const button = $("layers-button"), panel = $("layers-panel");
+    button.addEventListener("click", (e) => { e.stopPropagation(); panel.hidden = !panel.hidden; button.setAttribute("aria-expanded", String(!panel.hidden)); });
+    panel.addEventListener("click", (e) => e.stopPropagation());
+    document.addEventListener("click", () => { panel.hidden = true; button.setAttribute("aria-expanded", "false"); });
+  }
+  buildLayersPanel();
   function setOverlay(id, features) {
     overlays[id] = { type: "FeatureCollection", features };
     const src = map.getSource(id);
@@ -89,9 +180,9 @@
   function applyTiles() {
     const scheme = currentScheme();
     document.documentElement.classList.toggle("map-dark", scheme === "dark");
-    const url = STYLES[scheme];
-    if (map.__styleUrl !== url) { map.__styleUrl = url; map.setStyle(url); }
-    for (const cm of [compare.home, compare.match]) if (cm && cm.__styleUrl !== url) { cm.__styleUrl = url; cm.setStyle(url); }
+    const key = styleKey(scheme);
+    if (map.__styleKey !== key) { map.__styleKey = key; map.setStyle(styleFor(scheme)); }
+    for (const cm of [compare.home, compare.match]) if (cm && cm.__styleKey !== key) { cm.__styleKey = key; cm.setStyle(styleFor(scheme)); }
   }
   function setScheme(scheme) {
     const root = document.documentElement;
@@ -109,7 +200,7 @@
   }
   $("theme-toggle").addEventListener("click", () => setScheme(currentScheme() === "dark" ? "light" : "dark"));
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", applyTiles);
-  map.__styleUrl = STYLES[currentScheme()];
+  map.__styleKey = styleKey(currentScheme());
 
   let toastTimer = null;
   function toast(msg, ms = 3500) {
@@ -657,8 +748,8 @@
   function ensureCompareMaps() {
     if (compare.home) return;
     for (const key of ["home", "match"]) {
-      const m = new maplibregl.Map({ container: `compare-${key}`, style: STYLES[currentScheme()], interactive: false, attributionControl: false });
-      m.__styleUrl = STYLES[currentScheme()];
+      const m = new maplibregl.Map({ container: `compare-${key}`, style: styleFor(currentScheme()), interactive: false, attributionControl: false });
+      m.__styleKey = styleKey(currentScheme());
       m.on("style.load", () => compareLayers(m));
       compare[key] = m;
     }

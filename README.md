@@ -65,6 +65,13 @@ What the page does:
   to fly there, or press Compare to see home and match side by side on real
   map imagery with the match rotated, mirrored, and scaled to line up. The
   other tabs hold the contact sheet and the downloadable files.
+- **Layers.** The Layers button on the map picks a basemap and overlays. Basemaps:
+  the five OpenFreeMap vector styles (Light, Dark, Streets, Bright, Fiord),
+  OpenTopoMap, Esri satellite imagery, and NASA Blue Marble, none of which
+  need an API key. Overlays: hillshade and 3D terrain from Mapzen elevation
+  tiles on AWS, and the 1 km land mask the matcher actually sees, drawn over
+  the map so you can check what counts as water, lakes included. The choice
+  is remembered and the Compare view uses the same basemap.
 - **Runs.** Every run is kept under `results/` and listed in the Runs dialog,
   where you can reopen or delete it. A run that is still going when you reload
   the page reattaches automatically.
@@ -198,8 +205,9 @@ template variants, does a coarse full-planet pass with a 512-point FFT per
 tile, then refines every candidate at 1 km resolution with a local shift and
 rotation search. `app.js` coordinates the workers, draws the map and the
 thumbnails on canvases, and keeps past runs in localStorage. The map is
-MapLibre GL JS on OpenFreeMap vector tiles, which need no API key. Browsers
-without WebGL still get the search, the cards, and the downloads, just no map.
+MapLibre GL JS with the same basemaps and overlays as the local app; the land
+mask overlay is rendered by the worker for the current view. Browsers without
+WebGL still get the search, the cards, and the downloads, just no map.
 
 To rebuild the tiles after changing the export:
 

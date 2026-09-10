@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import re
 import secrets
@@ -12,7 +13,7 @@ from typing import Optional
 
 import httpx
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -377,6 +378,78 @@ def delete_job(job_id: str):
         cancel_job(job_id)
     shutil.rmtree(path, ignore_errors=True)
     return JSONResponse({"deleted": job_id})
+
+
+class MaskTiles:
+    def __init__(self, data_dir: Path):
+        self.dir = data_dir
+        self.index = json.loads((data_dir / "index.json").read_text())
+        self.cache: dict[tuple, "np.ndarray"] = {}
+
+    def tile(self, i, j):
+        key = (i, j)
+        if key not in self.cache:
+            from PIL import Image
+            import numpy as np
+
+            if len(self.cache) > 64:
+                self.cache.pop(next(iter(self.cache)))
+            img = Image.open(self.dir / "tiles" / f"r{i}_c{j}.png").convert("L")
+            self.cache[key] = np.asarray(img) > 127
+        return self.cache[key]
+
+    def land(self, lat, lon):
+        import numpy as np
+
+        ix = self.index
+        T = ix["tile"]
+        li = np.clip(np.trunc((lat - ix["lat0"]) / ix["dlat"]).astype(int), 0, ix["rows"] * T - 1)
+        lon = (lon + 180.0) % 360.0 - 180.0
+        lo = np.clip(np.trunc((lon - ix["lon0"]) / ix["dlon"]).astype(int), 0, ix["cols"] * T - 1)
+        ti, tj = li // T, lo // T
+        out = np.zeros(lat.shape, dtype=bool)
+        for i in np.unique(ti):
+            for j in np.unique(tj[ti == i]):
+                sel = (ti == i) & (tj == j)
+                cls = ix["classes"][i][j]
+                if cls != 2:
+                    out[sel] = bool(cls)
+                else:
+                    out[sel] = self.tile(i, j)[li[sel] - i * T, lo[sel] - j * T]
+        return out
+
+
+_mask_tiles: Optional[MaskTiles] = None
+
+
+@app.get("/api/mask.png")
+def mask_png(w: float, s: float, e: float, n: float, width: int = 768, height: int = 512):
+    global _mask_tiles
+    import io
+
+    import numpy as np
+    from PIL import Image
+
+    if _mask_tiles is None:
+        _mask_tiles = MaskTiles(ROOT / "docs" / "data")
+    width = int(min(max(width, 16), 1536))
+    height = int(min(max(height, 16), 1536))
+    s, n = max(-85.0, s), min(85.0, n)
+    if e <= w or n <= s:
+        raise HTTPException(422, "empty bounds")
+    merc = lambda lat: math.log(math.tan(math.pi / 4 + math.radians(lat) / 2))
+    top, bottom = merc(n), merc(s)
+    ym = top + (bottom - top) * (np.arange(height) + 0.5) / height
+    lat = np.degrees(np.arctan(np.sinh(ym)))
+    lon = w + (e - w) * (np.arange(width) + 0.5) / width
+    LON, LAT = np.meshgrid(lon, lat)
+    land = _mask_tiles.land(LAT, LON)
+    rgba = np.empty((height, width, 4), dtype=np.uint8)
+    rgba[land] = (217, 201, 163, 255)
+    rgba[~land] = (158, 202, 225, 255)
+    buf = io.BytesIO()
+    Image.fromarray(rgba, "RGBA").save(buf, "PNG", optimize=False)
+    return Response(buf.getvalue(), media_type="image/png", headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/health")

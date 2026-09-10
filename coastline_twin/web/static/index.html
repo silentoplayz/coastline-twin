@@ -156,13 +156,24 @@
         <progress id="status-progress" max="100" value="0"></progress>
         <p id="status-text" class="muted small"></p>
       </section>
-      <p class="notice">Land mask: GLOBE 30 arc-second via global-land-mask. Geocoding: Photon and Nominatim (OpenStreetMap). Map: MapLibre GL with OpenFreeMap vector tiles.</p>
+      <p class="notice">Land mask: GLOBE 30 arc-second via global-land-mask. Geocoding: Photon and Nominatim (OpenStreetMap). Map: MapLibre GL with OpenFreeMap vector tiles, OpenTopoMap, Esri imagery, NASA Blue Marble, and Mapzen elevation.</p>
     </form>
   </aside>
 
   <section class="map-wrap">
     <div id="map" role="application" aria-label="Map"></div>
     <div id="map-hint" class="map-hint">Click anywhere to drop your home pin</div>
+    <div class="layers-control">
+      <button type="button" id="layers-button" class="ghost" aria-expanded="false" aria-controls="layers-panel">Layers</button>
+      <div id="layers-panel" class="layers-panel" hidden>
+        <div class="layers-group"><b>Basemap</b><div id="basemap-options" class="layers-options"></div></div>
+        <div class="layers-group"><b>Overlays</b><div class="layers-options">
+          <label><input type="checkbox" id="layer-hillshade"> Hillshade</label>
+          <label><input type="checkbox" id="layer-terrain"> 3D terrain</label>
+          <label><input type="checkbox" id="layer-mask"> Land mask the matcher sees</label>
+        </div></div>
+      </div>
+    </div>
   </section>
 
   <aside id="results" class="results" hidden>

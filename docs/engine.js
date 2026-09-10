@@ -550,6 +550,23 @@ self.onmessage = async (ev) => {
         if (r) refined.push(r);
       }
       self.postMessage({ id: msg.id, ok: true, matches: refined, skipped: res.skipped, ms: performance.now() - t0 });
+    } else if (msg.type === "raster") {
+      await ensureRegion(msg.s, msg.n, msg.w, msg.e);
+      const { width, height, w, s, e, n } = msg;
+      const merc = (lat) => Math.log(Math.tan(Math.PI / 4 + (lat * D2R) / 2));
+      const top = merc(n), bottom = merc(s);
+      const pixels = new Uint8ClampedArray(width * height * 4);
+      for (let y = 0; y < height; y++) {
+        const ym = top + (bottom - top) * (y + 0.5) / height;
+        const lat = Math.atan(Math.sinh(ym)) * R2D;
+        for (let x = 0; x < width; x++) {
+          const lon = w + (e - w) * (x + 0.5) / width;
+          const k = (y * width + x) * 4;
+          if (landAt(lat, lon)) { pixels[k] = 217; pixels[k + 1] = 201; pixels[k + 2] = 163; } else { pixels[k] = 158; pixels[k + 1] = 202; pixels[k + 2] = 225; }
+          pixels[k + 3] = 255;
+        }
+      }
+      self.postMessage({ id: msg.id, ok: true, pixels: pixels.buffer }, [pixels.buffer]);
     } else if (msg.type === "probe") {
       const frame = makeFrame(msg.lat, msg.lon);
       await ensureRegion(...regionOf(frame, 100000));
