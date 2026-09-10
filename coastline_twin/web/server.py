@@ -17,6 +17,10 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from ..geo import set_land_source
+from ..search import SearchConfig, make_tiles, tile_may_contain
+from ..template import Template
+
 ROOT = Path(__file__).resolve().parents[2]
 STATIC = Path(__file__).resolve().parent / "static"
 RESULTS = Path(os.environ.get("COASTLINE_RESULTS", ROOT / "results")).resolve()
@@ -201,23 +205,42 @@ def _read_json(path):
         return None
 
 
+def _mask():
+    global _mask_tiles
+    if _mask_tiles is None:
+        _mask_tiles = MaskTiles(ROOT / "docs" / "data")
+        set_land_source(_mask_tiles.land)
+    return _mask_tiles
+
+
 @app.post("/api/preview")
 def preview(req: PreviewRequest):
-    name = "p-" + secrets.token_hex(4)
-    proc = subprocess.run(
-        _cli_args(req, name, PREVIEWS, True), cwd=ROOT, capture_output=True, text=True, timeout=180
+    _mask()
+    home = (req.home.lat, req.home.lon)
+    center = (req.center.lat, req.center.lon) if req.center else home
+    side_m = req.side_km * 1000.0
+    res_m = req.res_m or max(1000.0, side_m / 160.0)
+    template = Template(home, center, side_m, res_m)
+    stats = template.stats()
+    if stats["land_fraction"] in (0.0, 1.0):
+        raise HTTPException(400, "The home square has no coastline at this size. Move the center or enlarge the square.")
+    scales = [1.0, 1.25]
+    max_ext = max(template.footprint_extent(45.0, sc) for sc in scales)
+    cfg = SearchConfig(
+        res_m=res_m, tile_half_m=600_000.0 + max_ext, min_score=0.5, nms_px=3, per_tile=1, home=home,
+        exclude_km=0.0, min_sep_km=0.0, top=1, bbox=None, lat_band=None, same_hemisphere=False, workers=1,
     )
-    out_dir = PREVIEWS / name
-    info = _read_json(out_dir / "template.json")
-    if proc.returncode != 0 or info is None:
-        message = (proc.stdout.strip().splitlines() or proc.stderr.strip().splitlines() or ["preview failed"])[-1]
-        shutil.rmtree(out_dir, ignore_errors=True)
-        raise HTTPException(400, message)
-    for old in sorted(PREVIEWS.iterdir(), key=lambda d: d.stat().st_mtime)[:-20]:
-        shutil.rmtree(old, ignore_errors=True)
-    info["image"] = f"/results/.previews/{name}/template.png"
-    info["warnings"] = [line for line in proc.stdout.splitlines() if line.startswith("warning")]
-    return info
+    tiles = sum(1 for t in make_tiles(cfg) if tile_may_contain(t, cfg))
+    warnings = []
+    if template.n < 24:
+        warnings.append(f"Only {template.n} pixels across at this size, matches will be coarse.")
+    if stats["coast_ratio"] < 0.5:
+        warnings.append("Very little coastline in the square, matches will be loose.")
+    return {
+        "home": home, "center": center, "side_km": req.side_km, "res_m": res_m, "n": template.n,
+        "stats": stats, "tiles": tiles, "variants": 7 * 2 * len(scales), "dot_xy_m": template.dot_xy,
+        "land": "".join("1" if v else "0" for v in template.land.ravel()), "warnings": warnings,
+    }
 
 
 def _job_path(job_id: str):

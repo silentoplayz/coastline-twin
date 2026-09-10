@@ -49,12 +49,13 @@
           <input type="search" id="address" name="address" placeholder="Address, place, or lat, lon" aria-label="Address or coordinates">
           <button type="submit" id="search-button">Find</button>
         </div>
-        <ul id="geocode-results" class="suggestions" hidden></ul>
+        <ul id="geocode-results" class="suggestions" role="listbox" hidden></ul>
         <div class="coord-row">
           <label>Latitude <input type="number" id="home-lat" step="0.0001" min="-90" max="90"></label>
           <label>Longitude <input type="number" id="home-lon" step="0.0001" min="-180" max="180"></label>
         </div>
         <p id="home-address" class="muted small">Click the map or drag the red pin to place your home.</p>
+        <div class="button-row" style="margin-top:8px"><button type="button" id="copy-link" class="ghost small">Copy link to this spot</button></div>
       </section>
 
       <section class="panel">

@@ -1,8 +1,20 @@
 import numpy as np
 from pyproj import CRS, Transformer
-from global_land_mask import globe
 
 EARTH_RADIUS_KM = 6371.0088
+
+_land_source = None
+
+
+def set_land_source(fn):
+    global _land_source
+    _land_source = fn
+
+
+def _default_land(lat, lon):
+    from global_land_mask import globe
+
+    return globe.is_land(lat, lon)
 
 
 class LocalFrame:
@@ -27,7 +39,7 @@ class LocalFrame:
 def is_land(lat, lon):
     lat = np.clip(np.asarray(lat, dtype=float), -90.0, 90.0)
     lon = (np.asarray(lon, dtype=float) + 180.0) % 360.0 - 180.0
-    return np.asarray(globe.is_land(lat, lon), dtype=bool)
+    return np.asarray((_land_source or _default_land)(lat, lon), dtype=bool)
 
 
 def grid_coords(half_m, res_m):

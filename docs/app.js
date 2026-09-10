@@ -332,13 +332,41 @@
     return "";
   }
   function squareCorners(lat, lon, sideKm) {
-    const half = sideKm * 500;
-    const dlat = half / 111320;
-    const dlon = half / (111320 * Math.max(Math.cos(lat * Math.PI / 180), 0.01));
-    return [[lat - dlat, lon - dlon], [lat - dlat, lon + dlon], [lat + dlat, lon + dlon], [lat + dlat, lon - dlon]];
+    const h = sideKm * 500;
+    const frame = makeFrame(lat, lon);
+    return [[-h, -h], [h, -h], [h, h], [-h, h]].map(([x, y]) => toLatLon(frame, x, y));
   }
+  function fmtKm(km) {
+    return `${Math.round(km).toLocaleString()} km`;
+  }
+  function permalink() {
+    const u = new URL(location.href);
+    u.search = "";
+    if (state.home) {
+      u.searchParams.set("lat", state.home.lat.toFixed(4));
+      u.searchParams.set("lon", state.home.lon.toFixed(4));
+      u.searchParams.set("side", $("side-km").value);
+      if (state.centerMode === "custom" && state.center) {
+        u.searchParams.set("clat", state.center.lat.toFixed(4));
+        u.searchParams.set("clon", state.center.lon.toFixed(4));
+      }
+    }
+    return u.toString();
+  }
+  function syncUrl() {
+    try { history.replaceState(null, "", permalink()); } catch (e) {}
+  }
+  $("copy-link").addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(permalink());
+      toast("Link copied");
+    } catch (e) {
+      prompt("Copy this link", permalink());
+    }
+  });
   function effectiveCenter() { return state.centerMode === "custom" && state.center ? state.center : state.home; }
   function saveSettings() {
+    syncUrl();
     try {
       localStorage.setItem(SETTINGS_KEY, JSON.stringify({
         home: state.home, center: state.center, centerMode: state.centerMode,
@@ -403,30 +431,74 @@
   document.querySelectorAll('input[name="scale"]').forEach((c) => c.addEventListener("change", schedulePreview));
 
   const COORD_RE = /^\s*(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)\s*$/;
+  const suggestState = { timer: null, ctrl: null, rows: [], query: "" };
+  function pickRow(r) {
+    $("geocode-results").hidden = true;
+    $("address").value = r.name;
+    setHome(r.lat, r.lon, { pan: true, address: r.name });
+  }
+  function showSuggestions(rows, query) {
+    const list = $("geocode-results");
+    list.innerHTML = "";
+    suggestState.rows = rows;
+    suggestState.query = query;
+    if (!rows.length) { list.hidden = true; return; }
+    rows.forEach((r, i) => {
+      const li = document.createElement("li");
+      li.tabIndex = 0;
+      li.setAttribute("role", "option");
+      li.innerHTML = `<div>${escapeHtml(r.name)}</div><div class="type">${escapeHtml(r.type)}</div>`;
+      li.addEventListener("click", () => pickRow(r));
+      li.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter") { ev.preventDefault(); pickRow(r); }
+        else if (ev.key === "ArrowDown") { ev.preventDefault(); (li.nextElementSibling || li).focus(); }
+        else if (ev.key === "ArrowUp") { ev.preventDefault(); if (i === 0) $("address").focus(); else li.previousElementSibling.focus(); }
+        else if (ev.key === "Escape") { list.hidden = true; $("address").focus(); }
+      });
+      list.appendChild(li);
+    });
+    list.hidden = false;
+  }
+  async function suggest(q) {
+    if (suggestState.ctrl) suggestState.ctrl.abort();
+    const ctrl = new AbortController();
+    suggestState.ctrl = ctrl;
+    try {
+      const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=5`, { signal: ctrl.signal });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (ctrl.signal.aborted || $("address").value.trim() !== q) return;
+      showSuggestions((data.features || []).map((f) => ({
+        lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0],
+        name: photonName(f.properties || {}), type: (f.properties || {}).osm_value || "",
+      })), q);
+    } catch (e) {}
+  }
+  $("address").addEventListener("input", () => {
+    const q = $("address").value.trim();
+    clearTimeout(suggestState.timer);
+    if (q.length < 3 || COORD_RE.test(q)) { $("geocode-results").hidden = true; suggestState.rows = []; return; }
+    suggestState.timer = setTimeout(() => suggest(q), 350);
+  });
+  $("address").addEventListener("keydown", (ev) => {
+    if (ev.key === "ArrowDown" && !$("geocode-results").hidden) { ev.preventDefault(); $("geocode-results").firstElementChild?.focus(); }
+    else if (ev.key === "Escape") { $("geocode-results").hidden = true; }
+  });
+  document.addEventListener("click", (ev) => { if (!ev.target.closest(".search-row, .suggestions")) $("geocode-results").hidden = true; });
   $("search-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const q = $("address").value.trim();
-    const list = $("geocode-results");
-    list.innerHTML = "";
-    list.hidden = true;
+    clearTimeout(suggestState.timer);
     if (!q) return;
     const m = q.match(COORD_RE);
-    if (m) { setHome(Number(m[1]), Number(m[2]), { pan: true }); return; }
+    if (m) { $("geocode-results").hidden = true; setHome(Number(m[1]), Number(m[2]), { pan: true }); return; }
+    if (!$("geocode-results").hidden && suggestState.rows.length && suggestState.query === q) { pickRow(suggestState.rows[0]); return; }
     $("search-button").disabled = true;
     try {
       const rows = await geocode(q);
       if (!rows.length) { toast("Nothing found for that search"); return; }
-      if (rows.length === 1) { setHome(rows[0].lat, rows[0].lon, { pan: true, address: rows[0].name }); return; }
-      for (const r of rows) {
-        const li = document.createElement("li");
-        li.tabIndex = 0;
-        li.innerHTML = `<div>${escapeHtml(r.name)}</div><div class="type">${escapeHtml(r.type)}</div>`;
-        const pick = () => { list.hidden = true; $("address").value = r.name; setHome(r.lat, r.lon, { pan: true, address: r.name }); };
-        li.addEventListener("click", pick);
-        li.addEventListener("keydown", (ev) => { if (ev.key === "Enter") pick(); });
-        list.appendChild(li);
-      }
-      list.hidden = false;
+      if (rows.length === 1) { pickRow(rows[0]); return; }
+      showSuggestions(rows, q);
     } catch (err) {
       toast(`Search failed: ${err.message}`);
     } finally {
@@ -567,7 +639,7 @@
     try {
       await ensurePool(workerCount());
       const p = buildParams();
-      const res = await pool.call(0, { type: "prepare", params: p });
+      const res = await pool.call(0, { type: "prepare", params: { ...p, previewOnly: true } });
       if (seq !== state.previewSeq) return;
       const t = res.template;
       state.template = { n: t.n, res: t.res, land: landFrom(t.land), dot: t.dot, stats: t.stats };
@@ -764,7 +836,7 @@
         <div class="rank">${m.rank}</div>
         <div class="place">${escapeHtml(place)}</div>
         <div class="score">${m.score.toFixed(3)}</div>
-        <div class="detail">rotated ${m.theta > 0 ? "+" : ""}${Math.round(m.theta)}°${flip}, ${m.side_km.toFixed(0)} km square · dot at ${fmtCoords(m.dot_lat, m.dot_lon)}</div>
+        <div class="detail">rotated ${m.theta > 0 ? "+" : ""}${Math.round(m.theta)}°${flip}, ${m.side_km.toFixed(0)} km square · ${fmtKm(haversineKm(run.params.home.lat, run.params.home.lon, m.dot_lat, m.dot_lon))} from home · dot at ${fmtCoords(m.dot_lat, m.dot_lon)}</div>
         <div class="bars"><span>mask</span><div class="bar"><i style="width:${Math.max(0, m.mask_score) * 100}%"></i></div><span>coast</span><div class="bar"><i style="width:${Math.max(0, m.coast_score) * 100}%"></i></div></div>
         <div class="strip"><div><canvas></canvas><span>home</span></div><div><canvas></canvas><span>match</span></div><div><canvas></canvas><span>overlay</span></div></div>
         <div class="links"><a href="${osm}" target="_blank" rel="noopener">OpenStreetMap</a><a href="${gm}" target="_blank" rel="noopener">Google Maps</a><button type="button" class="small" data-compare="${m.rank}">Compare</button></div>`;
@@ -996,15 +1068,19 @@
     for (const cm of [compare.home, compare.match]) if (cm.getLayer("coast")) cm.setLayoutProperty("coast", "visibility", $("compare-coast").checked ? "visible" : "none");
     const place = m.place || fmtCoords(m.dot_lat, m.dot_lon);
     $("compare-title").textContent = `#${m.rank} ${place}`;
-    $("compare-meta").textContent = `score ${m.score.toFixed(3)} · rotated ${m.theta > 0 ? "+" : ""}${Math.round(m.theta)}°${m.flip ? ", mirrored" : ""}, ${m.side_km.toFixed(0)} km square · dot lands at ${fmtCoords(m.dot_lat, m.dot_lon)}`;
+    $("compare-meta").textContent = `score ${m.score.toFixed(3)} · rotated ${m.theta > 0 ? "+" : ""}${Math.round(m.theta)}°${m.flip ? ", mirrored" : ""}, ${m.side_km.toFixed(0)} km square · ${fmtKm(haversineKm(run.params.home.lat, run.params.home.lon, m.dot_lat, m.dot_lon))} from home · dot lands at ${fmtCoords(m.dot_lat, m.dot_lon)}`;
     $("compare-home-caption").textContent = `Home · ${run.params.side_km} km square`;
     $("compare-match-caption").textContent = `${place}${m.flip ? " · mirrored, labels off" : ""}`;
     $("compare-prev").disabled = compare.index === 0;
     $("compare-next").disabled = compare.index >= run.matches.length - 1;
   }
   $("compare-close").addEventListener("click", () => $("compare-dialog").close());
-  $("compare-prev").addEventListener("click", () => { compare.index--; renderCompare(); });
-  $("compare-next").addEventListener("click", () => { compare.index++; renderCompare(); });
+  $("compare-prev").addEventListener("click", () => { if (compare.index > 0) { compare.index--; renderCompare(); } });
+  $("compare-next").addEventListener("click", () => { if (compare.run && compare.index < compare.run.matches.length - 1) { compare.index++; renderCompare(); } });
+  $("compare-dialog").addEventListener("keydown", (ev) => {
+    if (ev.key === "ArrowLeft") $("compare-prev").click();
+    else if (ev.key === "ArrowRight") $("compare-next").click();
+  });
   $("compare-zoom").addEventListener("input", renderCompare);
   $("compare-labels").addEventListener("change", renderCompare);
   $("compare-coast").addEventListener("change", renderCompare);
@@ -1054,6 +1130,11 @@
   function init() {
     let saved = null;
     try { saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "null"); } catch (e) {}
+    const q = new URLSearchParams(location.search);
+    if (q.has("lat") && q.has("lon") && isFinite(Number(q.get("lat"))) && isFinite(Number(q.get("lon")))) {
+      saved = { home: { lat: Number(q.get("lat")), lon: Number(q.get("lon")) }, side: Number(q.get("side")) || 60, address: "" };
+      if (q.has("clat") && q.has("clon")) { saved.centerMode = "custom"; saved.center = { lat: Number(q.get("clat")), lon: Number(q.get("clon")) }; }
+    }
     if (saved && saved.home) {
       $("side-km").value = saved.side || 60;
       $("side-out").textContent = $("side-km").value;

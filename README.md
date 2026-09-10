@@ -49,9 +49,11 @@ run. Pass `--port 9000` or `--host 0.0.0.0` to change where it listens.
 
 What the page does:
 
-- **Where you live.** Type an address, a place name, or `lat, lon` and press
-  Find. Pick from the suggestions, click the map, or drag the red pin. The
-  address under the coordinates comes from a reverse lookup.
+- **Where you live.** Type an address, a place name, or `lat, lon`.
+  Suggestions appear as you type and Enter takes the first one. Or click the
+  map, or drag the red pin. The address under the coordinates comes from a
+  reverse lookup. Copy link gives a URL that reopens the same spot and square,
+  and the address bar keeps that link current as you move the pin.
 - **The square.** Slide the side length, and optionally drag a separate blue
   pin to center the square somewhere other than your home. The preview on the
   left is the exact land mask the search will use, with the pixel count, land

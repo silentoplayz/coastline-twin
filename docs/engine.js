@@ -293,6 +293,7 @@ async function prepare(p) {
   const reg = regionOf(fineFrame, p.side_m * 1.5 * Math.max(...p.scales));
   await ensureRegion(...reg);
   const fine = buildTemplate(p, fineRes);
+  if (p.previewOnly) return { fine, coarse: { n: Math.round(p.side_m / coarseRes) }, variants: [] };
   const coarse = buildTemplate(p, coarseRes);
   const variants = buildVariants(coarse, p);
   const fineBand = coastBand(fine.land, null, fine.n, p.band_px);
