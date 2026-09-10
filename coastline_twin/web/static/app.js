@@ -357,6 +357,7 @@
       top: Number($("top").value) || 15,
       min_score: Number($("min-score").value) || 0.5,
       detail_weight: Number($("detail-weight").value),
+      band_px: Number($("band-px").value) || 1,
       same_hemisphere: $("same-hemisphere").checked,
       lat_band: $("lat-band").value === "" ? null : Number($("lat-band").value),
       bbox: state.bbox,

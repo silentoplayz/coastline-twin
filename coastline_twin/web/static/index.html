@@ -106,6 +106,13 @@
           <input type="range" id="detail-weight" min="0" max="1" step="0.05" value="0.5">
           <span class="muted small">0 compares land masks only, 1 compares coastline overlap only</span>
         </label>
+        <label class="field">Coastline band <span class="muted small">pixels either side of the shoreline that count as coast</span>
+          <select id="band-px">
+            <option value="1">1 px, strict</option>
+            <option value="2" selected>2 px</option>
+            <option value="3">3 px, loose</option>
+          </select>
+        </label>
         <label class="field">Matches to keep <input type="number" id="top" min="1" max="100" value="15"></label>
       </section>
 

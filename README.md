@@ -99,6 +99,7 @@ Useful flags:
 | `--same-hemisphere` | Keep the seasons the same |
 | `--bbox LATMIN LONMIN LATMAX LONMAX` | Restrict the search to one region |
 | `--detail-weight 0.7` | Lean harder on coastline detail than on the land mask |
+| `--band-px 2` | Count pixels within 2 km of the shoreline as coast, instead of 1 |
 | `--exclude-km 500` | Ignore everything within 500 km of home |
 | `--top 30` | Keep more matches |
 | `--dry-run` | Print the template stats and tile count, search nothing |
