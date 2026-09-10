@@ -21,7 +21,7 @@ def build_parser():
     p.add_argument("--res-m", type=float, help="meters per pixel, default max(1000, side/64)")
     p.add_argument("--rot-max", type=float, default=45.0, help="max rotation in degrees each way, 180 searches all")
     p.add_argument("--rot-step", type=float, default=15.0, help="rotation step in degrees")
-    p.add_argument("--scales", default="0.8,1,1.25", help="comma separated size multipliers to try")
+    p.add_argument("--scales", default="1,1.25", help="comma separated size multipliers to try")
     p.add_argument("--no-flip", action="store_true", help="do not try mirror images")
     p.add_argument("--top", type=int, default=15, help="how many matches to keep")
     p.add_argument("--min-score", type=float, default=0.5, help="drop peaks below this score")

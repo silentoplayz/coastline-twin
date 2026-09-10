@@ -23,7 +23,7 @@ checked against.
    shape is not distorted.
 2. **Variants.** The square is rotated, mirrored, and rescaled into every
    combination you allow. Default is 7 rotations within plus or minus 45
-   degrees, both mirror states, and three sizes (0.8x, 1x, 1.25x).
+   degrees, both mirror states, and two sizes (1x and 1.25x).
 3. **World search.** Earth is cut into overlapping tiles about 1,200 km wide,
    each rasterized in its own local projection. Every variant is slid across
    every tile with FFT normalized cross-correlation. Tiles with no coastline
@@ -94,6 +94,7 @@ Useful flags:
 | `--rot-max 180` | Try every orientation instead of plus or minus 45 degrees |
 | `--no-flip` | Do not accept mirror images |
 | `--scales 1` | Only match at the same size |
+| `--scales 0.8,1,1.25` | Add the smaller window back |
 | `--lat-band 8` | Only accept matches within 8 degrees of your absolute latitude |
 | `--same-hemisphere` | Keep the seasons the same |
 | `--bbox LATMIN LONMIN LATMAX LONMAX` | Restrict the search to one region |
@@ -126,9 +127,9 @@ above 0.8 is a close twin. Between 0.7 and 0.8 the broad shape agrees and some
 detail lines up. Below 0.7 you are looking at the same general kind of coast.
 
 Smaller scales win more often than they should, because a 0.8x window has
-fewer pixels and is easier to correlate by chance. Both apps therefore leave
-0.8x unchecked by default. On the command line pass `--scales 1` when you
-want same-size matches only.
+fewer pixels and is easier to correlate by chance. The apps and the command
+line therefore leave 0.8x out by default. Pass `--scales 0.8,1,1.25` to add
+it back.
 
 Three limits to keep in mind:
 

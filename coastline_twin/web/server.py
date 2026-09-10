@@ -52,7 +52,7 @@ class PreviewRequest(BaseModel):
 class JobRequest(PreviewRequest):
     rot_max: float = 45
     rot_step: float = 15
-    scales: list[float] = [0.8, 1.0, 1.25]
+    scales: list[float] = [1.0, 1.25]
     flip: bool = True
     top: int = Field(default=15, ge=1, le=100)
     min_score: float = 0.5
