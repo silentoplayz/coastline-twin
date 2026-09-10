@@ -356,7 +356,7 @@
     const thetas = rotationList(rotMax, rot_step);
     const flips = $("flip").checked ? [false, true] : [false];
     const thorough = $("quality").value === "thorough";
-    const fine_res = Math.max(1000, side_m / 64);
+    const fine_res = Math.max(1000, side_m / 160);
     const coarse_res = thorough ? Math.max(1000, side_m / 48) : Math.max(2000, side_m / 24);
     const P = thorough ? 1024 : 512;
     const halfM = side_m / 2;
@@ -951,6 +951,8 @@
     $("runs-dialog").showModal();
   });
   $("runs-close").addEventListener("click", () => $("runs-dialog").close());
+  $("tips-button").addEventListener("click", () => $("tips-dialog").showModal());
+  $("tips-close").addEventListener("click", () => $("tips-dialog").close());
 
   function init() {
     let saved = null;

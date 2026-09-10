@@ -18,7 +18,7 @@ def build_parser():
     p.add_argument("--home", nargs=2, type=float, metavar=("LAT", "LON"), required=True, help="the dot: where you live")
     p.add_argument("--center", nargs=2, type=float, metavar=("LAT", "LON"), help="square center, defaults to home")
     p.add_argument("--side-km", type=float, default=60.0, help="side of the square snapshot in km")
-    p.add_argument("--res-m", type=float, help="meters per pixel, default max(1000, side/64)")
+    p.add_argument("--res-m", type=float, help="meters per pixel, default max(1000, side/160)")
     p.add_argument("--rot-max", type=float, default=45.0, help="max rotation in degrees each way, 180 searches all")
     p.add_argument("--rot-step", type=float, default=15.0, help="rotation step in degrees")
     p.add_argument("--scales", default="1,1.25", help="comma separated size multipliers to try")
@@ -45,7 +45,7 @@ def main(argv=None):
     home = (args.home[0], args.home[1])
     center = tuple(args.center) if args.center else home
     side_m = args.side_km * 1000.0
-    res_m = args.res_m or max(1000.0, side_m / 64.0)
+    res_m = args.res_m or max(1000.0, side_m / 160.0)
     scales = [float(s) for s in args.scales.split(",") if s.strip()]
     thetas = rotation_list(args.rot_max, args.rot_step)
     flips = [False] if args.no_flip else [False, True]

@@ -306,3 +306,7 @@ dialog.compare:not([open]) { display: none; }
 .compare-pane .caption { position: absolute; left: 10px; bottom: 10px; z-index: 2; background: color-mix(in srgb, var(--panel) 90%, transparent); border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px; font-size: 12px; pointer-events: none; }
 dialog.compare .notice { padding: 8px 0 0; margin: 0; }
 @media (max-width: 760px) { .compare-maps { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; } }
+
+dialog.tips { width: min(720px, 92vw); max-height: 88vh; overflow-y: auto; }
+.tips-list { margin: 0; padding-left: 22px; font-size: 14px; line-height: 1.5; }
+.tips-list li { margin-bottom: 10px; }

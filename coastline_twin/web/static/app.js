@@ -773,6 +773,8 @@
     $("runs-dialog").showModal();
   });
   $("runs-close").addEventListener("click", () => $("runs-dialog").close());
+  $("tips-button").addEventListener("click", () => $("tips-dialog").showModal());
+  $("tips-close").addEventListener("click", () => $("tips-dialog").close());
 
   async function init() {
     let saved = null;

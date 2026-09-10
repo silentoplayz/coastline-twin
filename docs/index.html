@@ -28,6 +28,7 @@
   </div>
   <div class="topbar-actions">
     <a class="ghost" href="https://github.com/silentoplayz/coastline-twin" target="_blank" rel="noopener" style="padding:7px 10px;text-decoration:none;color:var(--text)">GitHub</a>
+    <button type="button" id="tips-button" class="ghost">Tips</button>
     <button type="button" id="runs-button" class="ghost">Runs <span id="runs-count" class="count"></span></button>
     <button type="button" id="theme-toggle" class="ghost icon" aria-label="Toggle color scheme" title="Toggle light or dark">
       <span class="sun" aria-hidden="true">☀</span><span class="moon" aria-hidden="true">☾</span>
@@ -196,6 +197,25 @@
     <tbody id="runs-body"></tbody>
   </table>
   <p id="runs-empty" class="muted" hidden>No runs saved in this browser yet.</p>
+</dialog>
+
+<dialog id="tips-dialog" class="tips" closedby="any">
+  <div class="dialog-head">
+    <h2>Getting better matches</h2>
+    <button type="button" id="tips-close" class="ghost icon" aria-label="Close">×</button>
+  </div>
+  <ol class="tips-list">
+    <li><b>Give it a distinctive coastline.</b> A straight beach matches every other straight beach. Inlets, capes, estuaries, and barrier islands make a match mean something. The coast ratio in the preview is a rough measure: below 1 is featureless, 2 to 4 is good, above 5 is a maze of islands.</li>
+    <li><b>Aim for roughly half land.</b> At 90 percent land any coast in the right place scores well. Use Custom center and drag the blue pin so the square sits on the coast even when your home is inland. The dot still lands where you live.</li>
+    <li><b>Pick 40 to 120 km.</b> The land mask is 1 km, so a 20 km square is 20 pixels across and every coast looks alike. Above about 150 km the square describes a region, not a place.</li>
+    <li><b>Turn the detail weight up when results look generic.</b> Toward 0.8 it demands that the shoreline traces line up. Toward 0.2 it only cares about the broad shape.</li>
+    <li><b>Decide what rotation and mirroring mean to you.</b> A south-facing bay rotated 180 degrees faces north, with different light and weather. Keep rotation within 45 degrees and mirroring off if that matters.</li>
+    <li><b>Leave the sizes at 1x and 1.25x.</b> Smaller windows win by chance more often. Add 0.65x or 0.8x only on purpose, and read those scores with suspicion.</li>
+    <li><b>Filter for the life you want, then rank by shape.</b> Same hemisphere keeps the seasons. A latitude band of 5 to 10 degrees roughly keeps the climate. A region limit finds the best twin inside a country you would move to.</li>
+    <li><b>Read both score bars.</b> High mask with low coast means the land is in the right place but the shoreline differs. A high coast bar is the one that makes Compare line up.</li>
+    <li><b>Use Compare before you believe a match.</b> Labels off, zoom slider, and check whether the red home coastline sits on the match's shoreline or just near it. Walk the next few matches with the arrows.</li>
+    <li><b>Rerun with a shifted square.</b> Moving the center 10 km or changing the side 20 percent can change the top match. If the same places keep coming back, that is a real twin.</li>
+  </ol>
 </dialog>
 
 <dialog id="compare-dialog" class="compare" closedby="any">

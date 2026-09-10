@@ -119,6 +119,51 @@ For a one-off command line run inside the container:
 docker compose run --rm coastline-twin python -m coastline_twin --home 32.0 -80.85 --side-km 60
 ```
 
+## Getting better matches
+
+The matcher compares shapes, so the square you feed it decides everything.
+Work through these in order.
+
+1. **Give it a distinctive coastline.** A straight beach matches every other
+   straight beach. Inlets, capes, estuaries, barrier islands, and a bay with
+   an odd outline are what make a match mean something. The coast ratio in
+   the preview is a rough measure of this: below 1 is featureless, 2 to 4 is
+   good, above 5 is a maze of islands that only matches another maze.
+2. **Aim for a square that is roughly half land.** At 90 percent land the
+   score is dominated by the big land mass and any coast in the right place
+   scores well. Use Custom center and drag the blue pin so the square sits on
+   the coast even when your home is inland. The dot still lands where you
+   live.
+3. **Pick a size between 40 and 120 km.** The land mask is 1 km, so a 20 km
+   square is 20 pixels across and every coast looks alike. Above about 150 km
+   the square starts to describe a whole region rather than a place, and the
+   matches become continents that happen to bend the same way.
+4. **Turn the detail weight up when the results look generic.** At 0.5 the
+   score is half land mask and half coastline overlap. Raise it toward 0.8 to
+   demand that the actual coastline traces line up. Lower it toward 0.2 if
+   your coast is simple and you only care about the broad shape.
+5. **Decide what rotation and mirroring mean to you.** A south-facing bay
+   rotated 180 degrees faces north, with different light, wind, and weather.
+   Keep rotation within 45 degrees and mirroring off if that matters. Use any
+   orientation and mirroring when you want pure shape.
+6. **Leave the sizes at 1x and 1.25x.** Smaller windows have fewer pixels and
+   win by chance more often. Add 0.65x or 0.8x only when you are looking for
+   a smaller twin on purpose, and read those scores with suspicion.
+7. **Filter for the life you want, then rank by shape.** Same hemisphere keeps
+   the seasons. A latitude band of 5 to 10 degrees roughly keeps the climate.
+   A region limit finds the best twin inside a country you would actually
+   move to. Shape knows nothing about any of this.
+8. **Read the two score bars, not just the total.** A high mask bar with a
+   low coast bar means the land is in the right place but the shoreline
+   differs. A high coast bar is the one that makes the Compare view line up.
+9. **Use Compare before you believe a match.** Turn the labels off, drag the
+   zoom slider, and look at whether the red home coastline sits on the
+   match's actual shoreline or just near it. Then walk through the next few
+   matches with the arrows.
+10. **Rerun with a shifted square.** Moving the center by 10 km or changing
+    the side by 20 percent can change the top match. If the same places keep
+    coming back, that is a real twin.
+
 ## Reading the scores
 
 The self-match, home against itself, scores about 0.9 rather than 1.0 because
