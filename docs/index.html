@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="Take a square of the coastline around your home and find the places on Earth whose coastline lines up with it. Runs entirely in your browser.">
+<title>Coastline Twin</title>
+<script>
+  try {
+    const s = localStorage.getItem("color-scheme");
+    if (s === "light" || s === "dark") {
+      document.querySelector('meta[name="color-scheme"]').content = s;
+      document.documentElement.classList.add("theme-" + s);
+    }
+  } catch (e) {}
+</script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23145a86'/%3E%3Cpath d='M4 22c4-2 6-8 10-8s6 8 10 8 4-4 4-4v10H4z' fill='%23d9c9a3'/%3E%3Ccircle cx='17' cy='15' r='3' fill='%23d62728'/%3E%3C/svg%3E">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true"></span>
+    <span class="brand-name">Coastline Twin</span>
+    <span class="brand-tag">find the coast that matches yours</span>
+  </div>
+  <div class="topbar-actions">
+    <a class="ghost" href="https://github.com/silentoplayz/coastline-twin" target="_blank" rel="noopener" style="padding:7px 10px;text-decoration:none;color:var(--text)">GitHub</a>
+    <button type="button" id="runs-button" class="ghost">Runs <span id="runs-count" class="count"></span></button>
+    <button type="button" id="theme-toggle" class="ghost icon" aria-label="Toggle color scheme" title="Toggle light or dark">
+      <span class="sun" aria-hidden="true">☀</span><span class="moon" aria-hidden="true">☾</span>
+    </button>
+  </div>
+</header>
+
+<main class="layout">
+  <aside class="sidebar">
+    <div class="hero">
+      <b>Where else on Earth does your coastline exist?</b>
+      <p>Drop a pin on your home. A square of coastline around it is compared with every coast on the planet, rotated, mirrored, and resized, and the best overlays are ranked. Wherever your dot lands on a match is where you would "move" to. Everything runs in your browser.</p>
+    </div>
+    <form id="search-form" autocomplete="off" novalidate>
+      <section class="panel">
+        <h2>Where you live</h2>
+        <div class="search-row">
+          <input type="search" id="address" name="address" placeholder="Address, place, or lat, lon" aria-label="Address or coordinates">
+          <button type="submit" id="search-button">Find</button>
+        </div>
+        <ul id="geocode-results" class="suggestions" hidden></ul>
+        <div class="coord-row">
+          <label>Latitude <input type="number" id="home-lat" step="0.0001" min="-90" max="90"></label>
+          <label>Longitude <input type="number" id="home-lon" step="0.0001" min="-180" max="180"></label>
+        </div>
+        <p id="home-address" class="muted small">Click the map or drag the red pin to place your home.</p>
+      </section>
+
+      <section class="panel">
+        <h2>The square</h2>
+        <label class="range-row">
+          <span>Side <output id="side-out">60</output> km</span>
+          <input type="range" id="side-km" min="20" max="400" step="5" value="60">
+        </label>
+        <div class="choice-row" role="radiogroup" aria-label="Square center">
+          <label><input type="radio" name="center-mode" value="home" checked> Centered on the pin</label>
+          <label><input type="radio" name="center-mode" value="custom"> Custom center <span class="muted small">(drag the blue pin)</span></label>
+        </div>
+        <div id="preview" class="preview">
+          <div class="preview-image">
+            <canvas id="preview-canvas" hidden></canvas>
+            <div id="preview-empty" class="preview-empty">Set a location to preview the square.</div>
+          </div>
+          <dl id="preview-stats" class="stats" hidden>
+            <div><dt>Pixels</dt><dd id="stat-pixels"></dd></div>
+            <div><dt>Land</dt><dd id="stat-land"></dd></div>
+            <div><dt>Coast ratio</dt><dd id="stat-coast"></dd></div>
+            <div><dt>Tiles</dt><dd id="stat-tiles"></dd></div>
+          </dl>
+          <p id="preview-warning" class="warning small" hidden></p>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Matching</h2>
+        <label class="field">Rotation
+          <select id="rot-max">
+            <option value="15">Within ±15°</option>
+            <option value="45" selected>Within ±45°</option>
+            <option value="90">Within ±90°</option>
+            <option value="180">Any orientation</option>
+          </select>
+        </label>
+        <label class="check"><input type="checkbox" id="flip" checked> Allow mirror images</label>
+        <fieldset class="chips">
+          <legend>Sizes to try</legend>
+          <label><input type="checkbox" name="scale" value="0.65"> 0.65×</label>
+          <label><input type="checkbox" name="scale" value="0.8" checked> 0.8×</label>
+          <label><input type="checkbox" name="scale" value="1" checked> 1×</label>
+          <label><input type="checkbox" name="scale" value="1.25" checked> 1.25×</label>
+          <label><input type="checkbox" name="scale" value="1.5"> 1.5×</label>
+        </fieldset>
+        <label class="range-row">
+          <span>Detail weight <output id="detail-out">0.5</output></span>
+          <input type="range" id="detail-weight" min="0" max="1" step="0.05" value="0.5">
+          <span class="muted small">0 compares land masks only, 1 compares coastline overlap only</span>
+        </label>
+        <label class="field">Search quality
+          <select id="quality">
+            <option value="fast" selected>Fast (coarse pass, then refine)</option>
+            <option value="thorough">Thorough (4x slower)</option>
+          </select>
+        </label>
+        <label class="field">Matches to keep <input type="number" id="top" min="1" max="100" value="15"></label>
+      </section>
+
+      <section class="panel">
+        <h2>Filters</h2>
+        <label class="check"><input type="checkbox" id="same-hemisphere"> Same hemisphere</label>
+        <label class="field">Latitude band <span class="muted small">degrees from your absolute latitude, blank for any</span>
+          <input type="number" id="lat-band" min="0" max="90" step="1" placeholder="any">
+        </label>
+        <div class="field">
+          <span>Region</span>
+          <div class="button-row">
+            <button type="button" id="bbox-set" class="ghost">Use current map view</button>
+            <button type="button" id="bbox-clear" class="ghost" hidden>Clear</button>
+          </div>
+          <p id="bbox-text" class="muted small">Whole planet</p>
+        </div>
+      </section>
+
+      <details class="panel">
+        <summary>Advanced</summary>
+        <label class="field">Minimum score <input type="number" id="min-score" min="0" max="1" step="0.05" value="0.5"></label>
+        <label class="field">Ignore matches within <span class="muted small">km of home, blank for twice the side</span>
+          <input type="number" id="exclude-km" min="0" step="10" placeholder="auto">
+        </label>
+        <label class="field">Worker threads <input type="number" id="workers" min="1" max="32" placeholder="auto"></label>
+        <label class="field">Run label <input type="text" id="label" maxlength="60" placeholder="optional"></label>
+      </details>
+
+      <div class="run-bar">
+        <button type="button" id="run-button" class="primary" disabled>Search the planet</button>
+      </div>
+      <section id="status" class="panel status" hidden>
+        <div class="status-head">
+          <span id="status-label"></span>
+          <button type="button" id="cancel-button" class="ghost small" hidden>Cancel</button>
+        </div>
+        <progress id="status-progress" max="100" value="0"></progress>
+        <p id="status-text" class="muted small"></p>
+      </section>
+      <p class="notice">Land mask: GLOBE 30 arc-second via global-land-mask. Geocoding: Photon and Nominatim (OpenStreetMap). Map tiles: OpenStreetMap.</p>
+    </form>
+  </aside>
+
+  <section class="map-wrap">
+    <div id="map" role="application" aria-label="Map"></div>
+    <div id="map-hint" class="map-hint">Click anywhere to drop your home pin</div>
+  </section>
+
+  <aside id="results" class="results" hidden>
+    <div class="results-head">
+      <div>
+        <h2 id="results-title"></h2>
+        <p id="results-meta" class="muted small"></p>
+      </div>
+      <button type="button" id="results-close" class="ghost icon" aria-label="Close results">×</button>
+    </div>
+    <div class="tabs" role="tablist">
+      <button type="button" role="tab" aria-selected="true" data-tab="matches">Matches</button>
+      <button type="button" role="tab" aria-selected="false" data-tab="sheet">Contact sheet</button>
+      <button type="button" role="tab" aria-selected="false" data-tab="files">Files</button>
+    </div>
+    <div id="tab-matches" class="tab-page">
+      <ol id="match-list" class="matches"></ol>
+    </div>
+    <div id="tab-sheet" class="tab-page" hidden>
+      <div id="sheet" class="sheet"></div>
+    </div>
+    <div id="tab-files" class="tab-page" hidden>
+      <ul id="file-list" class="files"></ul>
+      <p class="muted small">Drop the GeoJSON on <a href="https://geojson.io" target="_blank" rel="noopener">geojson.io</a> to see every square on a map.</p>
+    </div>
+  </aside>
+</main>
+
+<dialog id="runs-dialog" closedby="any">
+  <div class="dialog-head">
+    <h2>Runs</h2>
+    <button type="button" id="runs-close" class="ghost icon" aria-label="Close">×</button>
+  </div>
+  <table class="runs-table">
+    <thead><tr><th>Run</th><th>Home</th><th>Square</th><th>Matches</th><th>Top match</th><th></th></tr></thead>
+    <tbody id="runs-body"></tbody>
+  </table>
+  <p id="runs-empty" class="muted" hidden>No runs saved in this browser yet.</p>
+</dialog>
+
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

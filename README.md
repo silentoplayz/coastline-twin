@@ -4,6 +4,13 @@ Take a square snapshot of the coastline around where you live, then search the
 whole planet for the places whose coastline lines up with it. Wherever your
 home dot lands on the best overlay is where you "move" to.
 
+**Try it in your browser: https://silentoplayz.github.io/coastline-twin/**
+
+The website needs no server. The land mask ships as 1.3 MB of 1-bit PNG tiles,
+the matcher runs in Web Workers, and a full-planet search takes about two
+minutes on a laptop. The Python app below is the same idea at full resolution
+everywhere and is the reference the site was checked against.
+
 ## How it works
 
 1. **Home square.** A square of `--side-km` kilometers centered on your home
@@ -124,6 +131,29 @@ Three limits to keep in mind:
 - **Shape knows nothing about climate.** Use `--lat-band`, `--same-hemisphere`,
   or `--bbox` to filter first, then let the coastline rank what survives.
 
+## The website
+
+`docs/` is the GitHub Pages site. `tools/export_tiles.py` writes the land mask
+as 18 by 36 tiles of 1200 by 1200 one-bit PNGs (all-water and all-land tiles
+are recorded in `index.json` instead of stored). `engine.js` runs in a Web
+Worker: it samples the tiles into local azimuthal equidistant grids, builds the
+template variants, does a coarse full-planet pass with a 512-point FFT per
+tile, then refines every candidate at 1 km resolution with a local shift and
+rotation search. `app.js` coordinates the workers, draws the map and the
+thumbnails on canvases, and keeps past runs in localStorage.
+
+To rebuild the tiles after changing the export:
+
+```bash
+.venv/bin/python tools/export_tiles.py docs/data
+```
+
+To try the site locally:
+
+```bash
+cd docs && python3 -m http.server 8792
+```
+
 ## Layout
 
 ```
@@ -134,5 +164,13 @@ coastline_twin/
   report.py       reverse geocoding, contact sheet, JSON, GeoJSON, HTML
   cli.py          argument parsing and the run
   web/server.py   FastAPI: geocoding proxy, previews, runs as subprocesses
-  web/static/     the single page app (Leaflet map, vanilla JS, no build step)
+  web/static/     the local app (Leaflet map, vanilla JS, no build step)
+docs/
+  index.html      the GitHub Pages app
+  app.js          coordinator: map, form, workers, results, saved runs
+  engine.js       the matcher, runs in Web Workers
+  fft.js          radix-2 2D FFT with two-real packing
+  data/           land mask tiles and index
+tools/
+  export_tiles.py writes docs/data from the global-land-mask package
 ```
