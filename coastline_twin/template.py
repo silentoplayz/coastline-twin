@@ -43,7 +43,7 @@ class Variant:
 
 
 class Template:
-    def __init__(self, home, center, side_m, res_m, supersample=2, band_width=1):
+    def __init__(self, home, center, side_m, res_m, supersample=2, band_width=2):
         self.home = (float(home[0]), float(home[1]))
         self.center = (float(center[0]), float(center[1]))
         self.side_m = float(side_m)

@@ -57,7 +57,7 @@ class JobRequest(PreviewRequest):
     top: int = Field(default=15, ge=1, le=100)
     min_score: float = 0.5
     detail_weight: float = Field(default=0.5, ge=0, le=1)
-    band_px: int = Field(default=1, ge=0, le=5)
+    band_px: int = Field(default=2, ge=0, le=5)
     lat_band: Optional[float] = None
     same_hemisphere: bool = False
     bbox: Optional[list[float]] = None

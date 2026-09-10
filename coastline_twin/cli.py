@@ -26,7 +26,7 @@ def build_parser():
     p.add_argument("--top", type=int, default=15, help="how many matches to keep")
     p.add_argument("--min-score", type=float, default=0.5, help="drop peaks below this score")
     p.add_argument("--detail-weight", type=float, default=0.5, help="0 scores land masks only, 1 scores coastline overlap only")
-    p.add_argument("--band-px", type=int, default=1, help="how many pixels to widen the coastline band each side")
+    p.add_argument("--band-px", type=int, default=2, help="how many pixels to widen the coastline band each side")
     p.add_argument("--supersample", type=int, default=2, help="sub-samples per pixel edge when rasterizing")
     p.add_argument("--exclude-km", type=float, help="ignore matches this close to home, default 2x side")
     p.add_argument("--min-sep-km", type=float, help="minimum distance between reported matches, default side")

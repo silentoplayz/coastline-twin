@@ -35,7 +35,7 @@ class SearchConfig:
     same_hemisphere: bool
     workers: int
     supersample: int = 2
-    band_width: int = 1
+    band_width: int = 2
     detail_weight: float = 0.5
     variance_floor: float = 0.3
     step_deg: float = 9.0

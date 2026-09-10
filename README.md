@@ -29,9 +29,10 @@ checked against.
    every tile with FFT normalized cross-correlation. Tiles with no coastline
    are skipped.
 4. **Score.** Two normalized correlations are blended: the land and water
-   masks, and a narrow coastline band. The band term is what stops a straight
-   beach from matching every other straight beach. `--detail-weight` sets the
-   blend, 1.0 is identical.
+   masks, and a coastline band two pixels wide on each side of the shoreline.
+   The band term is what stops a straight beach from matching every other
+   straight beach. `--detail-weight` sets the blend and `--band-px` the band
+   width, 1.0 is identical.
 5. **Results.** Peaks are deduplicated, the home neighborhood is excluded, and
    the top matches are written as JSON, GeoJSON, a contact sheet PNG, and an
    HTML report with map links. The dot is carried through the same rotation,
@@ -99,7 +100,7 @@ Useful flags:
 | `--same-hemisphere` | Keep the seasons the same |
 | `--bbox LATMIN LONMIN LATMAX LONMAX` | Restrict the search to one region |
 | `--detail-weight 0.7` | Lean harder on coastline detail than on the land mask |
-| `--band-px 2` | Count pixels within 2 km of the shoreline as coast, instead of 1 |
+| `--band-px 1` | Count only pixels within 1 km of the shoreline as coast, stricter than the default 2 |
 | `--exclude-km 500` | Ignore everything within 500 km of home |
 | `--top 30` | Keep more matches |
 | `--dry-run` | Print the template stats and tile count, search nothing |
