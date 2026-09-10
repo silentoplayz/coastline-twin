@@ -126,7 +126,8 @@ above 0.8 is a close twin. Between 0.7 and 0.8 the broad shape agrees and some
 detail lines up. Below 0.7 you are looking at the same general kind of coast.
 
 Smaller scales win more often than they should, because a 0.8x window has
-fewer pixels and is easier to correlate by chance. Pass `--scales 1` when you
+fewer pixels and is easier to correlate by chance. Both apps therefore leave
+0.8x unchecked by default. On the command line pass `--scales 1` when you
 want same-size matches only.
 
 Three limits to keep in mind:
