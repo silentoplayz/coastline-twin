@@ -67,8 +67,7 @@ What the page does:
   other tabs hold the contact sheet and the downloadable files.
 - **Layers.** The Layers button on the map picks a basemap and overlays. Basemaps:
   the five OpenFreeMap vector styles (Light, Dark, Streets, Bright, Fiord),
-  OpenTopoMap, Esri satellite imagery, and NASA Blue Marble, none of which
-  need an API key. Overlays: hillshade and 3D terrain from Mapzen elevation
+  OpenTopoMap, and Esri satellite imagery, none of which need an API key. Overlays: hillshade and 3D terrain from Mapzen elevation
   tiles on AWS, and the 1 km land mask the matcher actually sees, drawn over
   the map so you can check what counts as water, lakes included. The choice
   is remembered and the Compare view uses the same basemap.
