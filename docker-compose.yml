@@ -1,0 +1,9 @@
+services:
+  coastline-twin:
+    build: .
+    container_name: coastline-twin
+    ports:
+      - "127.0.0.1:8790:8790"
+    volumes:
+      - ./results:/app/results
+    restart: unless-stopped
