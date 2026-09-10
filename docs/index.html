@@ -15,7 +15,7 @@
     }
   } catch (e) {}
 </script>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css">
 <link rel="stylesheet" href="style.css">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23145a86'/%3E%3Cpath d='M4 22c4-2 6-8 10-8s6 8 10 8 4-4 4-4v10H4z' fill='%23d9c9a3'/%3E%3Ccircle cx='17' cy='15' r='3' fill='%23d62728'/%3E%3C/svg%3E">
 </head>
@@ -151,7 +151,7 @@
         <progress id="status-progress" max="100" value="0"></progress>
         <p id="status-text" class="muted small"></p>
       </section>
-      <p class="notice">Land mask: GLOBE 30 arc-second via global-land-mask. Geocoding: Photon and Nominatim (OpenStreetMap). Map tiles: OpenStreetMap.</p>
+      <p class="notice">Land mask: GLOBE 30 arc-second via global-land-mask. Geocoding: Photon and Nominatim (OpenStreetMap). Map: MapLibre GL with OpenFreeMap vector tiles.</p>
     </form>
   </aside>
 
@@ -198,9 +198,32 @@
   <p id="runs-empty" class="muted" hidden>No runs saved in this browser yet.</p>
 </dialog>
 
+<dialog id="compare-dialog" class="compare" closedby="any">
+  <div class="dialog-head">
+    <div>
+      <h2 id="compare-title"></h2>
+      <p id="compare-meta" class="muted small"></p>
+    </div>
+    <div class="compare-controls">
+      <label class="check"><input type="checkbox" id="compare-coast" checked> Home coastline</label>
+      <label class="check"><input type="checkbox" id="compare-labels" checked> Labels</label>
+      <label class="check zoomer">Zoom <input type="range" id="compare-zoom" min="-2" max="2" step="0.25" value="0"></label>
+      <button type="button" id="compare-prev" class="ghost small" title="Previous match">‹</button>
+      <button type="button" id="compare-next" class="ghost small" title="Next match">›</button>
+      <button type="button" id="compare-close" class="ghost icon" aria-label="Close">×</button>
+    </div>
+  </div>
+  <div class="compare-maps">
+    <div class="compare-pane"><div id="compare-home" class="compare-map"></div><span class="caption" id="compare-home-caption">Home</span></div>
+    <div class="compare-pane"><div id="compare-match" class="compare-map"></div><span class="caption" id="compare-match-caption"></span></div>
+  </div>
+  <p class="notice">The match is rotated, mirrored, and scaled so its coastline sits the way yours does. Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors, © <a href="https://openmaptiles.org/" target="_blank" rel="noopener">OpenMapTiles</a>, tiles by <a href="https://openfreemap.org/" target="_blank" rel="noopener">OpenFreeMap</a>.</p>
+</dialog>
+
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+<script src="geo.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

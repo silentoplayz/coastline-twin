@@ -59,18 +59,65 @@
     return poolReady;
   }
 
-  const TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
-  const ATTRIB = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
-  const map = L.map("map", { zoomControl: true, worldCopyJump: true }).setView([30, -20], 3);
-  L.tileLayer(TILE_URL, { attribution: ATTRIB, maxZoom: 19 }).addTo(map);
-  const homeIcon = L.divIcon({ className: "pin-home", iconSize: [22, 22], iconAnchor: [11, 11] });
-  const centerIcon = L.divIcon({ className: "pin-center", iconSize: [16, 16], iconAnchor: [8, 8] });
-  const homeMarker = L.marker([0, 0], { icon: homeIcon, draggable: true, zIndexOffset: 1000 });
-  const centerMarker = L.marker([0, 0], { icon: centerIcon, draggable: true, zIndexOffset: 900 });
-  const squareLayer = L.polygon([], { color: "#d62728", weight: 2, fill: false, dashArray: "6 4" });
-  const bboxLayer = L.rectangle([[0, 0], [0, 0]], { color: "#1f77b4", weight: 1, fill: true, fillOpacity: 0.04, dashArray: "2 6" });
-  const resultLayer = L.layerGroup().addTo(map);
+  const STYLES = { light: "https://tiles.openfreemap.org/styles/positron", dark: "https://tiles.openfreemap.org/styles/dark" };
+  const overlays = {
+    "home-square": { type: "FeatureCollection", features: [] },
+    "bbox": { type: "FeatureCollection", features: [] },
+    "match-squares": { type: "FeatureCollection", features: [] },
+  };
+  const webgl = (() => {
+    try { const c = document.createElement("canvas"); return !!(c.getContext("webgl2") || c.getContext("webgl")); } catch (e) { return false; }
+  })();
+  const noop = () => undefined;
+  const nullMap = new Proxy({}, { get: (_, key) => (key === "getSource" || key === "getLayer" ? noop : key === "getBounds" ? () => null : key === "getZoom" ? () => 2 : key === "getContainer" ? () => $("map") : noop) });
+  const map = webgl ? new maplibregl.Map({
+    container: "map", style: STYLES[currentScheme()], center: [-20, 30], zoom: 1.6,
+    attributionControl: { compact: true }, canvasContextAttributes: { antialias: true },
+  }) : nullMap;
+  if (!webgl) {
+    $("map").innerHTML = '<div class="preview-empty" style="padding:40px">This browser has no WebGL, so the map cannot be drawn. Searching still works: type an address or coordinates on the left.</div>';
+    $("map-hint").hidden = true;
+  }
+  if (webgl) map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), "top-left");
+  if (webgl && maplibregl.GlobeControl) map.addControl(new maplibregl.GlobeControl(), "top-left");
+  map.on("style.load", () => {
+    map.setProjection({ type: "globe" });
+    for (const [id, paint] of [
+      ["home-square", { "line-color": "#d62728", "line-width": 2, "line-dasharray": [3, 2] }],
+      ["bbox", { "line-color": "#1f77b4", "line-width": 1, "line-dasharray": [1, 3] }],
+      ["match-squares", { "line-color": "#d62728", "line-width": 1.5, "line-opacity": 0.85 }],
+    ]) {
+      if (!map.getSource(id)) map.addSource(id, { type: "geojson", data: overlays[id] });
+      if (!map.getLayer(id)) map.addLayer({ id, type: "line", source: id, paint });
+    }
+    if (!map.getLayer("bbox-fill")) map.addLayer({ id: "bbox-fill", type: "fill", source: "bbox", paint: { "fill-color": "#1f77b4", "fill-opacity": 0.05 } }, "bbox");
+  });
+  function setOverlay(id, features) {
+    overlays[id] = { type: "FeatureCollection", features };
+    const src = map.getSource(id);
+    if (src) src.setData(overlays[id]);
+  }
+  function makePin(className, { draggable = false, text = "" } = {}) {
+    const el = document.createElement("div");
+    el.className = className;
+    if (text) el.textContent = text;
+    el.addEventListener("click", (e) => e.stopPropagation());
+    if (!webgl) return new Proxy({ getElement: () => el }, { get: (t, key) => (key in t ? t[key] : key === "getLngLat" ? () => ({ lat: 0, lng: 0 }) : key === "getPopup" ? () => ({ isOpen: () => true }) : (...a) => (key === "setLngLat" || key === "addTo" || key === "setPopup" ? proxySelf : undefined)) });
+    return new maplibregl.Marker({ element: el, draggable });
+  }
+  let proxySelf = null;
+  const homeMarker = makePin("pin-home", { draggable: true });
+  const centerMarker = makePin("pin-center", { draggable: true });
+  let homeOnMap = false, centerOnMap = false;
+  const resultMarkers = [];
   window.__coastlineTwin = { map, reverseGeocode: (...a) => reverseGeocode(...a) };
+  function ringOf(corners) { return corners.map(([lat, lon]) => [lon, lat]).concat([[corners[0][1], corners[0][0]]]); }
+  function polygonFeature(ring, props = {}) { return { type: "Feature", geometry: { type: "Polygon", coordinates: [ring] }, properties: props }; }
+  function boundsOf(points) {
+    const b = new maplibregl.LngLatBounds();
+    for (const [lon, lat] of points) b.extend([lon, lat]);
+    return b;
+  }
 
   function currentScheme() {
     const cls = document.documentElement.classList;
@@ -78,7 +125,13 @@
     if (cls.contains("theme-light")) return "light";
     return matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   }
-  function applyTiles() { document.documentElement.classList.toggle("map-dark", currentScheme() === "dark"); }
+  function applyTiles() {
+    const scheme = currentScheme();
+    document.documentElement.classList.toggle("map-dark", scheme === "dark");
+    const url = STYLES[scheme];
+    if (map.__styleUrl !== url) { map.__styleUrl = url; map.setStyle(url); }
+    for (const cm of [compare.home, compare.match]) if (cm && cm.__styleUrl !== url) { cm.__styleUrl = url; cm.setStyle(url); }
+  }
   function setScheme(scheme) {
     const root = document.documentElement;
     root.classList.remove("theme-light", "theme-dark");
@@ -95,7 +148,7 @@
   }
   $("theme-toggle").addEventListener("click", () => setScheme(currentScheme() === "dark" ? "light" : "dark"));
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", applyTiles);
-  applyTiles();
+  map.__styleUrl = STYLES[currentScheme()];
 
   let toastTimer = null;
   function toast(msg, ms = 3500) {
@@ -199,13 +252,13 @@
   function drawSquare() {
     const c = effectiveCenter();
     if (!c) return;
-    squareLayer.setLatLngs(squareCorners(c.lat, c.lon, Number($("side-km").value)));
-    if (!map.hasLayer(squareLayer)) squareLayer.addTo(map);
+    setOverlay("home-square", [polygonFeature(ringOf(squareCorners(c.lat, c.lon, Number($("side-km").value))))]);
     if (state.centerMode === "custom") {
-      centerMarker.setLatLng([c.lat, c.lon]);
-      if (!map.hasLayer(centerMarker)) centerMarker.addTo(map);
-    } else if (map.hasLayer(centerMarker)) {
-      map.removeLayer(centerMarker);
+      centerMarker.setLngLat([c.lon, c.lat]);
+      if (!centerOnMap) { centerMarker.addTo(map); centerOnMap = true; }
+    } else if (centerOnMap) {
+      centerMarker.remove();
+      centerOnMap = false;
     }
   }
 
@@ -216,9 +269,9 @@
     state.home = { lat, lon };
     $("home-lat").value = fmt(lat);
     $("home-lon").value = fmt(lon);
-    homeMarker.setLatLng([lat, lon]);
-    if (!map.hasLayer(homeMarker)) homeMarker.addTo(map);
-    if (pan) map.flyTo([lat, lon], Math.max(map.getZoom(), 8), { duration: 0.8 });
+    homeMarker.setLngLat([lon, lat]);
+    if (!homeOnMap) { homeMarker.addTo(map); homeOnMap = true; }
+    if (pan) map.flyTo({ center: [lon, lat], zoom: Math.max(map.getZoom(), 8), duration: 900 });
     $("map-hint").classList.add("faded");
     if (address) {
       $("home-address").textContent = address;
@@ -236,10 +289,10 @@
     $("run-button").disabled = state.running;
     saveSettings();
   }
-  homeMarker.on("dragend", () => { const p = homeMarker.getLatLng(); setHome(p.lat, p.lng); });
-  centerMarker.on("drag", () => { const p = centerMarker.getLatLng(); state.center = { lat: p.lat, lon: p.lng }; drawSquare(); });
+  homeMarker.on("dragend", () => { const p = homeMarker.getLngLat(); setHome(p.lat, p.lng); });
+  centerMarker.on("drag", () => { const p = centerMarker.getLngLat(); state.center = { lat: p.lat, lon: p.lng }; drawSquare(); });
   centerMarker.on("dragend", () => { schedulePreview(); saveSettings(); });
-  map.on("click", (e) => setHome(e.latlng.lat, e.latlng.lng));
+  map.on("click", (e) => setHome(e.lngLat.lat, e.lngLat.lng));
   $("home-lat").addEventListener("change", () => setHome(Number($("home-lat").value), Number($("home-lon").value || 0), { pan: true }));
   $("home-lon").addEventListener("change", () => setHome(Number($("home-lat").value || 0), Number($("home-lon").value), { pan: true }));
   document.querySelectorAll('input[name="center-mode"]').forEach((r) => r.addEventListener("change", () => {
@@ -446,16 +499,17 @@
 
   $("bbox-set").addEventListener("click", () => {
     const b = map.getBounds();
-    state.bbox = [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()];
-    bboxLayer.setBounds(b);
-    if (!map.hasLayer(bboxLayer)) bboxLayer.addTo(map);
+    if (!b) { toast("The region limit needs the map, which this browser cannot draw."); return; }
+    state.bbox = [Math.max(-90, b.getSouth()), Math.max(-180, b.getWest()), Math.min(90, b.getNorth()), Math.min(180, b.getEast())];
+    const [s0, w0, n0, e0] = state.bbox;
+    setOverlay("bbox", [polygonFeature([[w0, s0], [e0, s0], [e0, n0], [w0, n0], [w0, s0]])]);
     $("bbox-text").textContent = `Only ${fmt(state.bbox[0], 1)}…${fmt(state.bbox[2], 1)} lat, ${fmt(state.bbox[1], 1)}…${fmt(state.bbox[3], 1)} lon`;
     $("bbox-clear").hidden = false;
     schedulePreview();
   });
   $("bbox-clear").addEventListener("click", () => {
     state.bbox = null;
-    if (map.hasLayer(bboxLayer)) map.removeLayer(bboxLayer);
+    setOverlay("bbox", []);
     $("bbox-text").textContent = "Whole planet";
     $("bbox-clear").hidden = true;
     schedulePreview();
@@ -575,7 +629,9 @@
   }
 
   function clearResults() {
-    resultLayer.clearLayers();
+    for (const mk of resultMarkers) mk.remove();
+    resultMarkers.length = 0;
+    setOverlay("match-squares", []);
     state.markers.clear();
     state.matches = [];
     state.selected = null;
@@ -599,6 +655,7 @@
     const sheet = $("sheet");
     sheet.innerHTML = "";
     const bounds = [];
+    const squares = [];
     for (const m of matches) {
       const place = m.place || fmtCoords(m.dot_lat, m.dot_lon);
       const flip = m.flip ? ", mirrored" : "";
@@ -613,38 +670,43 @@
         <div class="detail">rotated ${m.theta > 0 ? "+" : ""}${Math.round(m.theta)}°${flip}, ${m.side_km.toFixed(0)} km square · dot at ${fmtCoords(m.dot_lat, m.dot_lon)}</div>
         <div class="bars"><span>mask</span><div class="bar"><i style="width:${Math.max(0, m.mask_score) * 100}%"></i></div><span>coast</span><div class="bar"><i style="width:${Math.max(0, m.coast_score) * 100}%"></i></div></div>
         <div class="strip"><div><canvas></canvas><span>home</span></div><div><canvas></canvas><span>match</span></div><div><canvas></canvas><span>overlay</span></div></div>
-        <div class="links"><a href="${osm}" target="_blank" rel="noopener">OpenStreetMap</a><a href="${gm}" target="_blank" rel="noopener">Google Maps</a></div>`;
+        <div class="links"><a href="${osm}" target="_blank" rel="noopener">OpenStreetMap</a><a href="${gm}" target="_blank" rel="noopener">Google Maps</a><button type="button" class="small" data-compare="${m.rank}">Compare</button></div>`;
       const win = landFrom(m.window);
       const cv = li.querySelectorAll("canvas");
       drawMask(cv[0], t.land, t.n, dot);
       drawMask(cv[1], win, t.n, dot);
       drawMask(cv[2], win, t.n, dot, t.land);
-      li.addEventListener("click", (e) => { if (e.target.tagName !== "A") selectMatch(m.rank, true); });
+      li.addEventListener("click", (e) => { if (e.target.tagName !== "A" && e.target.tagName !== "BUTTON") selectMatch(m.rank, true); });
+      li.querySelector("[data-compare]").addEventListener("click", () => openCompare(run, m.rank - 1));
       list.appendChild(li);
 
       const row = document.createElement("div");
       row.className = "row";
-      row.innerHTML = `<div class="title">#${m.rank} ${escapeHtml(place)} · ${m.score.toFixed(3)}</div><div class="muted small">rotated ${m.theta > 0 ? "+" : ""}${Math.round(m.theta)}°${flip}, ${m.side_km.toFixed(0)} km square</div>
+      row.innerHTML = `<div class="title">#${m.rank} ${escapeHtml(place)} · ${m.score.toFixed(3)}</div><div class="muted small">rotated ${m.theta > 0 ? "+" : ""}${Math.round(m.theta)}°${flip}, ${m.side_km.toFixed(0)} km square · <a href="#" data-compare>compare on the map</a></div>
         <div class="strip"><div><canvas></canvas><span>home</span></div><div><canvas></canvas><span>match</span></div><div><canvas></canvas><span>overlay</span></div></div>`;
       const cs = row.querySelectorAll("canvas");
       drawMask(cs[0], t.land, t.n, dot);
       drawMask(cs[1], win, t.n, dot);
       drawMask(cs[2], win, t.n, dot, t.land);
+      row.querySelector("[data-compare]").addEventListener("click", (e) => { e.preventDefault(); openCompare(run, m.rank - 1); });
       sheet.appendChild(row);
 
-      const icon = L.divIcon({ className: "pin-match", html: String(m.rank), iconSize: [26, 26], iconAnchor: [13, 13] });
-      const marker = L.marker([m.dot_lat, m.dot_lon], { icon, title: place }).addTo(resultLayer);
-      marker.bindPopup(`<b>#${m.rank} ${escapeHtml(place)}</b><br>score ${m.score.toFixed(3)}<br>${fmtCoords(m.dot_lat, m.dot_lon)}`);
-      marker.on("click", () => selectMatch(m.rank, false));
-      const poly = L.polygon(m.square.map(([lon, lat]) => [lat, lon]), { color: "#d62728", weight: 1.5, fill: false, opacity: 0.8 }).addTo(resultLayer);
-      state.markers.set(m.rank, { marker, poly, li });
-      bounds.push([m.dot_lat, m.dot_lon]);
+      const marker = makePin("pin-match", { text: String(m.rank) });
+      marker.getElement().title = place;
+      marker.setPopup(new maplibregl.Popup({ offset: 16, closeButton: false }).setHTML(`<b>#${m.rank} ${escapeHtml(place)}</b><br>score ${m.score.toFixed(3)}<br>${fmtCoords(m.dot_lat, m.dot_lon)}`));
+      marker.getElement().addEventListener("click", () => selectMatch(m.rank, false));
+      marker.setLngLat([m.dot_lon, m.dot_lat]).addTo(map);
+      resultMarkers.push(marker);
+      squares.push(polygonFeature(m.square, { rank: m.rank }));
+      state.markers.set(m.rank, { marker, square: m.square, li });
+      bounds.push([m.dot_lon, m.dot_lat]);
     }
-    if (run.params.home) bounds.push([run.params.home.lat, run.params.home.lon]);
+    setOverlay("match-squares", squares);
+    if (run.params.home) bounds.push([run.params.home.lon, run.params.home.lat]);
     switchTab("matches");
     requestAnimationFrame(() => {
-      map.invalidateSize();
-      if (bounds.length) map.fitBounds(bounds, { padding: [40, 40], maxZoom: 6 });
+      map.resize();
+      if (bounds.length) map.fitBounds(boundsOf(bounds), { padding: 50, maxZoom: 6, duration: 900 });
     });
     renderFiles(run, t);
   }
@@ -725,14 +787,131 @@
     cur.li.classList.add("selected");
     cur.marker.getElement()?.classList.add("selected");
     cur.li.scrollIntoView({ block: "nearest", behavior: "smooth" });
-    if (fly) { map.flyToBounds(cur.poly.getBounds().pad(0.6), { duration: 0.9 }); cur.marker.openPopup(); }
+    if (fly) {
+      map.fitBounds(boundsOf(cur.square), { padding: 90, maxZoom: 11, duration: 900 });
+      if (!cur.marker.getPopup().isOpen()) cur.marker.togglePopup();
+    }
   }
   document.querySelectorAll(".tabs [role=tab]").forEach((b) => b.addEventListener("click", () => switchTab(b.dataset.tab)));
   function switchTab(name) {
     document.querySelectorAll(".tabs [role=tab]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === name)));
     for (const page of ["matches", "sheet", "files"]) $(`tab-${page}`).hidden = page !== name;
   }
-  $("results-close").addEventListener("click", () => { $("results").hidden = true; clearResults(); requestAnimationFrame(() => map.invalidateSize()); });
+  $("results-close").addEventListener("click", () => { $("results").hidden = true; clearResults(); requestAnimationFrame(() => map.resize()); });
+
+  const compare = { home: null, match: null, run: null, index: 0, dots: [] };
+  function coastSegments(land, n, res) {
+    const half = n * res / 2;
+    const segs = [];
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
+      const k = r * n + c;
+      if (c + 1 < n && land[k] !== land[k + 1]) {
+        const x = -half + (c + 1) * res;
+        segs.push([[x, half - (r + 1) * res], [x, half - r * res]]);
+      }
+      if (r + 1 < n && land[k] !== land[k + n]) {
+        const y = half - (r + 1) * res;
+        segs.push([[-half + c * res, y], [-half + (c + 1) * res, y]]);
+      }
+    }
+    return segs;
+  }
+  function zoomFor(lat, spanM, px) {
+    return Math.log2(40075016.686 * Math.cos(lat * D2R) / (512 * (spanM / px)));
+  }
+  function setLabels(m, on) {
+    if (!m) return;
+    let style = null;
+    try { style = m.getStyle(); } catch (e) { return; }
+    if (!style || !style.layers) return;
+    for (const layer of style.layers) if (layer.type === "symbol" && m.getLayer(layer.id)) m.setLayoutProperty(layer.id, "visibility", on ? "visible" : "none");
+  }
+  function compareLayers(m) {
+    for (const [id, paint] of [
+      ["square", { "line-color": "#d62728", "line-width": 2, "line-dasharray": [3, 2] }],
+      ["coast", { "line-color": "#d62728", "line-width": 2.5, "line-opacity": 0.9 }],
+    ]) {
+      if (!m.getSource(id)) m.addSource(id, { type: "geojson", data: m.__data && m.__data[id] || { type: "FeatureCollection", features: [] } });
+      if (!m.getLayer(id)) m.addLayer({ id, type: "line", source: id, paint });
+    }
+    m.setLayoutProperty("coast", "visibility", $("compare-coast").checked ? "visible" : "none");
+    setLabels(m, m.__labels !== false);
+  }
+  function ensureCompareMaps() {
+    if (compare.home) return;
+    for (const key of ["home", "match"]) {
+      const m = new maplibregl.Map({ container: `compare-${key}`, style: STYLES[currentScheme()], interactive: false, attributionControl: false });
+      m.__styleUrl = STYLES[currentScheme()];
+      m.on("style.load", () => compareLayers(m));
+      compare[key] = m;
+    }
+  }
+  function setCompareData(m, data) {
+    m.__data = data;
+    for (const [id, fc] of Object.entries(data)) { const src = m.getSource(id); if (src) src.setData(fc); }
+  }
+  function openCompare(run, index) {
+    if (!webgl) { toast("The comparison view needs WebGL, which this browser does not provide."); return; }
+    compare.run = run;
+    compare.index = Math.max(0, Math.min(run.matches.length - 1, index));
+    $("compare-dialog").showModal();
+    requestAnimationFrame(() => {
+      ensureCompareMaps();
+      compare.home.resize();
+      compare.match.resize();
+      renderCompare();
+    });
+  }
+  function renderCompare() {
+    const run = compare.run;
+    if (!run) return;
+    const m = run.matches[compare.index];
+    const t = run.template;
+    const land = landFrom(t.land);
+    const homeFrame = makeFrame(run.params.center.lat, run.params.center.lon);
+    const matchFrame = makeFrame(m.center_lat, m.center_lon);
+    const segs = coastSegments(land, t.n, t.res);
+    const toLonLat = (frame, x, y) => { const [la, lo] = toLatLon(frame, x, y); return [lo, la]; };
+    const homeCoast = { type: "Feature", geometry: { type: "MultiLineString", coordinates: segs.map((seg) => seg.map(([x, y]) => toLonLat(homeFrame, x, y))) } };
+    const matchCoast = { type: "Feature", geometry: { type: "MultiLineString", coordinates: segs.map((seg) => seg.map(([x, y]) => { const [qx, qy] = forward(x, y, m.theta, m.flip, m.scale); return toLonLat(matchFrame, qx, qy); })) } };
+    const h = t.n * t.res / 2;
+    const homeSquare = polygonFeature([[-h, -h], [h, -h], [h, h], [-h, h], [-h, -h]].map(([x, y]) => toLonLat(homeFrame, x, y)));
+    const matchSquare = polygonFeature(m.square);
+    setCompareData(compare.home, { square: { type: "FeatureCollection", features: [homeSquare] }, coast: { type: "FeatureCollection", features: [homeCoast] } });
+    setCompareData(compare.match, { square: { type: "FeatureCollection", features: [matchSquare] }, coast: { type: "FeatureCollection", features: [matchCoast] } });
+    for (const d of compare.dots) d.remove();
+    compare.dots = [
+      makePin("pin-dot").setLngLat([run.params.home.lon, run.params.home.lat]).addTo(compare.home),
+      makePin("pin-dot").setLngLat([m.dot_lon, m.dot_lat]).addTo(compare.match),
+    ];
+    const rect = $("compare-home").getBoundingClientRect();
+    const px = Math.max(200, Math.min(rect.width, rect.height));
+    const offset = Number($("compare-zoom").value);
+    const side = run.params.side_km * 1000;
+    compare.home.jumpTo({ center: [run.params.center.lon, run.params.center.lat], zoom: zoomFor(run.params.center.lat, side * 1.3, px) + offset, bearing: 0, pitch: 0 });
+    compare.match.jumpTo({ center: [m.center_lon, m.center_lat], zoom: zoomFor(m.center_lat, side * m.scale * 1.3, px) + offset, bearing: -m.theta, pitch: 0 });
+    $("compare-match").classList.toggle("mirrored", !!m.flip);
+    const labels = $("compare-labels").checked;
+    compare.home.__labels = labels;
+    compare.match.__labels = labels && !m.flip;
+    setLabels(compare.home, compare.home.__labels);
+    setLabels(compare.match, compare.match.__labels);
+    for (const cm of [compare.home, compare.match]) if (cm.getLayer("coast")) cm.setLayoutProperty("coast", "visibility", $("compare-coast").checked ? "visible" : "none");
+    const place = m.place || fmtCoords(m.dot_lat, m.dot_lon);
+    $("compare-title").textContent = `#${m.rank} ${place}`;
+    $("compare-meta").textContent = `score ${m.score.toFixed(3)} · rotated ${m.theta > 0 ? "+" : ""}${Math.round(m.theta)}°${m.flip ? ", mirrored" : ""}, ${m.side_km.toFixed(0)} km square · dot lands at ${fmtCoords(m.dot_lat, m.dot_lon)}`;
+    $("compare-home-caption").textContent = `Home · ${run.params.side_km} km square`;
+    $("compare-match-caption").textContent = `${place}${m.flip ? " · mirrored, labels off" : ""}`;
+    $("compare-prev").disabled = compare.index === 0;
+    $("compare-next").disabled = compare.index >= run.matches.length - 1;
+  }
+  $("compare-close").addEventListener("click", () => $("compare-dialog").close());
+  $("compare-prev").addEventListener("click", () => { compare.index--; renderCompare(); });
+  $("compare-next").addEventListener("click", () => { compare.index++; renderCompare(); });
+  $("compare-zoom").addEventListener("input", renderCompare);
+  $("compare-labels").addEventListener("change", renderCompare);
+  $("compare-coast").addEventListener("change", renderCompare);
+  window.addEventListener("resize", () => { if ($("compare-dialog").open && compare.home) { compare.home.resize(); compare.match.resize(); renderCompare(); } });
 
   $("runs-button").addEventListener("click", () => {
     const runs = refreshRunsCount();
@@ -786,7 +965,7 @@
         document.querySelector('input[name="center-mode"][value="custom"]').checked = true;
       }
       setHome(saved.home.lat, saved.home.lon, { pan: false });
-      map.setView([saved.home.lat, saved.home.lon], 8);
+      map.jumpTo({ center: [saved.home.lon, saved.home.lat], zoom: 8 });
     }
     refreshRunsCount();
     ensurePool(workerCount()).catch((e) => toast(`Could not load the land mask: ${e.message}`));

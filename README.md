@@ -8,8 +8,12 @@ home dot lands on the best overlay is where you "move" to.
 
 The website needs no server. The land mask ships as 1.3 MB of 1-bit PNG tiles,
 the matcher runs in Web Workers, and a full-planet search takes about two
-minutes on a laptop. The Python app below is the same idea at full resolution
-everywhere and is the reference the site was checked against.
+minutes on a laptop. Results land on a MapLibre globe, and every match has a
+Compare view: your home and the match side by side on real map imagery, with
+the match rotated, mirrored, and scaled so the coastlines sit the same way,
+and your home coastline drawn over it in red. The Python app below is the
+same idea at full resolution everywhere and is the reference the site was
+checked against.
 
 ## How it works
 
@@ -140,7 +144,9 @@ Worker: it samples the tiles into local azimuthal equidistant grids, builds the
 template variants, does a coarse full-planet pass with a 512-point FFT per
 tile, then refines every candidate at 1 km resolution with a local shift and
 rotation search. `app.js` coordinates the workers, draws the map and the
-thumbnails on canvases, and keeps past runs in localStorage.
+thumbnails on canvases, and keeps past runs in localStorage. The map is
+MapLibre GL JS on OpenFreeMap vector tiles, which need no API key. Browsers
+without WebGL still get the search, the cards, and the downloads, just no map.
 
 To rebuild the tiles after changing the export:
 
