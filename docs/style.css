@@ -260,7 +260,8 @@ dialog::backdrop { background: rgb(0 0 0 / .45); }
 .runs-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .runs-table th, .runs-table td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
 .runs-table th { color: var(--muted); font-weight: 600; font-size: 12px; }
-.runs-table .actions { white-space: nowrap; display: flex; gap: 4px; }
+.runs-table .actions { white-space: nowrap; text-align: right; }
+.runs-table .actions button + button { margin-left: 4px; }
 .status-pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; background: var(--panel2); }
 .status-pill.done { color: var(--accent); }
 .status-pill.failed, .status-pill.cancelled { color: var(--danger); }
