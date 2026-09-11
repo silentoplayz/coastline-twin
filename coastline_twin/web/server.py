@@ -598,6 +598,14 @@ def health():
     return {"ok": True, "results": str(RESULTS), "cpus": os.cpu_count()}
 
 
+@app.middleware("http")
+async def revalidate_page_files(request, call_next):
+    response = await call_next(request)
+    if not request.url.path.startswith(("/api/", "/results/")):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
 @app.get("/")
 def index():
     return FileResponse(STATIC / "index.html")
