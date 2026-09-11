@@ -441,6 +441,13 @@ def process_tile(tile):
     size = max(3, int(cfg.nms_px)) | 1
     local_max = maximum_filter(best, size=size, mode="nearest")
     maxima = (best >= local_max) & (best_var >= 0) & (best != 0)
+    if cfg.home is not None and cfg.exclude_km > 0:
+        hx, hy = frame.to_xy(cfg.home[0], cfg.home[1])
+        radius = cfg.exclude_km * 1000.0 / cfg.res_m
+        hr, hc = (tile.half_m - float(hy)) / cfg.res_m, (float(hx) + tile.half_m) / cfg.res_m
+        if -radius <= hr <= n + radius and -radius <= hc <= n + radius:
+            rr, cc = np.ogrid[:n, :n]
+            maxima &= (rr - hr) ** 2 + (cc - hc) ** 2 > radius**2
     hist = np.bincount(
         np.clip(((best[maxima] + 1.0) / HIST_STEP).astype(np.int64), 0, HIST_BINS - 1), minlength=HIST_BINS
     )

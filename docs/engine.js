@@ -533,8 +533,15 @@ function processTile(tile) {
   const lm = maxFilter(best, N, size);
   const peaks = [];
   const hist = new Int32Array(HIST_BINS);
+  let hr = -Infinity, hc = -Infinity, radius = 0;
+  if (p.home && p.exclude_km > 0) {
+    const [hx, hy] = toXY(frame, p.home.lat, p.home.lon);
+    radius = p.exclude_km * 1000 / res;
+    hr = (halfM - hy) / res; hc = (hx + halfM) / res;
+  }
   for (let k = 0; k < N * N; k++) {
     if (bestVar[k] < 0 || best[k] === 0 || best[k] < lm[k]) continue;
+    if (radius > 0) { const dr = ((k / N) | 0) - hr, dc = (k % N) - hc; if (dr * dr + dc * dc <= radius * radius) continue; }
     hist[Math.max(0, Math.min(HIST_BINS - 1, Math.floor((best[k] + 1) / HIST_STEP)))]++;
     if (best[k] >= p.coarse_min_score) peaks.push(k);
   }
