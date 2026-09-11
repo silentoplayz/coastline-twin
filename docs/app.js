@@ -1284,7 +1284,7 @@
     if (run.params.home) bounds.push([run.params.home.lon, run.params.home.lat]);
     requestAnimationFrame(() => {
       map.resize();
-      if (bounds.length) map.fitBounds(boundsOf(bounds), { padding: 50, maxZoom: 6, duration: 900 });
+      if (bounds.length) map.fitBounds(boundsOf(bounds), { padding: 50, maxZoom: 6, pitch: 0, duration: 900 });
     });
   }
 
@@ -1365,7 +1365,7 @@
     cur.marker.getElement()?.classList.add("selected");
     cur.li.scrollIntoView({ block: "nearest", behavior: "smooth" });
     if (fly) {
-      map.fitBounds(boundsOf(cur.square), { padding: 90, maxZoom: 11, duration: 900 });
+      map.fitBounds(boundsOf(cur.square), { padding: 90, maxZoom: 11, pitch: 0, duration: 900 });
       if (!cur.marker.getPopup().isOpen()) cur.marker.togglePopup();
     }
   }
