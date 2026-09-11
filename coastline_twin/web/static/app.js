@@ -72,6 +72,19 @@
     if (d > 0) map.setMinZoom(Math.max(0, Math.log2(d / 163) + 0.21));
   }
   if (webgl) { map.on("load", fitMinZoom); map.on("resize", fitMinZoom); }
+  const sky = { layers: [[document.querySelector("#space .stars-far"), 1.6, 900], [document.querySelector("#space .stars-near"), 3.2, 1400]], raf: 0 };
+  function moveSky() {
+    sky.raf = 0;
+    const c = map.getCenter(), b = map.getBearing(), pitch = map.getPitch(), z = map.getZoom();
+    const s = 1 + Math.max(0, Math.min(1, (z - 1) / 6)) * 0.12;
+    for (const [el, k, tile] of sky.layers) {
+      if (!el) continue;
+      const dx = ((-c.lng * k) % tile + tile) % tile - tile / 2;
+      const dy = ((c.lat * k - pitch * 1.5) % tile + tile) % tile - tile / 2;
+      el.style.transform = `rotate(${-b}deg) scale(${s}) translate(${dx.toFixed(1)}px, ${dy.toFixed(1)}px)`;
+    }
+  }
+  if (webgl) { map.on("move", () => { if (!sky.raf) sky.raf = requestAnimationFrame(moveSky); }); map.on("load", moveSky); }
   map.on("style.load", () => {
     map.setProjection({ type: "globe" });
     if (map.setSky) map.setSky({ "atmosphere-blend": ["interpolate", ["linear"], ["zoom"], 0, 0.9, 5, 0.9, 7, 0] });
