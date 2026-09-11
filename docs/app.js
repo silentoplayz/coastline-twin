@@ -362,6 +362,8 @@
   function climateLabel(code) {
     return code ? code : "";
   }
+  function thetaOf(m) { return m.theta_display != null ? m.theta_display : m.theta; }
+  function mirrorText(m) { return m.mirror === "ns" ? ", mirrored north–south" : (m.flip ? ", mirrored" : ""); }
   function scoreLabel(score) {
     if (score >= 0.8) return ["close twin", "chip-strong"];
     if (score >= 0.7) return ["strong", "chip-good"];
@@ -727,7 +729,7 @@
     return {
       home: drawn ? null : state.home, center: drawn ? null : effectiveCenter(), custom: drawn ? customParams() : null, side_m, side_km: sideKm,
       supersample: 2, band_px: Number($("band-px").value) || 1, detail_weight: Number($("detail-weight").value), variance_floor: 0.3,
-      thetas, flips, scales: scales.length ? scales : [1], rot_step, rot_max: rotMax,
+      thetas, flips, scales: scales.length ? scales : [1], rot_step, rot_max: rotMax, hemisphere_flip: $("hemisphere-flip").checked,
       min_score: minScore, coarse_min_score: Math.max(0.25, minScore - 0.15),
       nms_px: Math.max(3, Math.round(side_m / coarse_res / 2)), per_tile: $("climate").value ? 40 : 12, refine_per_tile: 5,
       exclude_km: drawn ? 0 : ($("exclude-km").value === "" ? 2 * sideKm : Number($("exclude-km").value)),
@@ -986,7 +988,7 @@
       const run = {
         id: `${Date.now()}`, label, started: Date.now(), seconds, tiles: tiles.length, raw: all.length,
         params: { home: p.home, center: p.center, custom: !!p.custom, home_name: homePlace, side_km: p.side_km, scales: p.scales, thetas: p.thetas, flips: p.flips,
-          detail_weight: p.detail_weight, band_px: p.band_px, climate: p.climate, vector_top: p.vector_top, same_hemisphere: p.same_hemisphere, lat_band: p.lat_band, bbox: p.bbox, quality: p.quality, min_score: p.min_score },
+          detail_weight: p.detail_weight, band_px: p.band_px, climate: p.climate, vector_top: p.vector_top, hemisphere_flip: p.hemisphere_flip, same_hemisphere: p.same_hemisphere, lat_band: p.lat_band, bbox: p.bbox, quality: p.quality, min_score: p.min_score },
         template: { n: t.n, res: t.res, land: t.land.join(""), dot: t.dot },
         home_climate: p.home_climate,
         matches: matches.map((m) => ({ ...m, window: m.window.join("") })),
@@ -1068,6 +1070,7 @@
     const bits = [`${run.params.side_km} km square`, `${run.tiles} tiles`, fmtDuration(run.seconds)];
     if (run.params.same_hemisphere) bits.push("same hemisphere");
     if (run.params.lat_band != null) bits.push(`±${run.params.lat_band}° latitude`);
+    if (run.params.hemisphere_flip) bits.push("north–south mirrors");
     if (run.params.bbox) bits.push("region limited");
     if (run.params.climate) bits.push(run.params.climate === "same" ? `climate ${run.home_climate || "same"}` : run.params.climate === "group" ? `climate group ${(run.home_climate || "?")[0]}` : `climate ${run.params.climate}`);
     $("results-meta").textContent = bits.join(" · ");
@@ -1099,7 +1102,7 @@
     const squares = [];
     matches.forEach((m, index) => {
       const place = m.place || fmtCoords(m.dot_lat, m.dot_lon);
-      const flip = m.flip ? ", mirrored" : "";
+      const flip = mirrorText(m);
       const distance = run.params.home ? fmtKm(haversineKm(run.params.home.lat, run.params.home.lon, m.dot_lat, m.dot_lon)) + " from home" : "drawn coastline";
       const osm = `https://www.openstreetmap.org/?mlat=${m.dot_lat.toFixed(5)}&mlon=${m.dot_lon.toFixed(5)}#map=11/${m.dot_lat.toFixed(5)}/${m.dot_lon.toFixed(5)}`;
       const gm = `https://www.google.com/maps/search/?api=1&query=${m.dot_lat.toFixed(5)},${m.dot_lon.toFixed(5)}`;
@@ -1111,7 +1114,7 @@
         <div class="rank">${m.rank}</div>
         <div class="place">${escapeHtml(place)} <span class="chip ${scoreLabel(m.score)[1]}">${scoreLabel(m.score)[0]}</span></div>
         <div class="score">${m.score.toFixed(3)}</div>
-        <div class="detail">rotated ${m.theta > 0 ? "+" : ""}${Math.round(m.theta)}°${flip}, ${m.side_km.toFixed(0)} km square · ${distance}${m.climate ? ` · ${m.climate}${m.climate_name ? " " + m.climate_name : ""}` : ""}${m.vector ? ` · sharpened at ${m.vector_res_m} m` : ""} · dot at ${fmtCoords(m.dot_lat, m.dot_lon)}</div>
+        <div class="detail">rotated ${thetaOf(m) > 0 ? "+" : ""}${Math.round(thetaOf(m))}°${flip}, ${m.side_km.toFixed(0)} km square · ${distance}${m.climate ? ` · ${m.climate}${m.climate_name ? " " + m.climate_name : ""}` : ""}${m.vector ? ` · sharpened at ${m.vector_res_m} m` : ""} · dot at ${fmtCoords(m.dot_lat, m.dot_lon)}</div>
         <div class="bars"><span>mask</span><div class="bar"><i style="width:${Math.max(0, m.mask_score) * 100}%"></i></div><span>coast</span><div class="bar"><i style="width:${Math.max(0, m.coast_score) * 100}%"></i></div></div>
         <div class="strip"><div><canvas></canvas><span>home</span></div><div><canvas></canvas><span>match</span></div><div><canvas></canvas><span>overlay</span></div></div>
         <div class="links"><a href="${osm}" target="_blank" rel="noopener">OpenStreetMap</a><a href="${gm}" target="_blank" rel="noopener">Google Maps</a><button type="button" class="ghost small" data-why="${m.rank}">Why?</button><button type="button" class="small" data-compare="${m.rank}">Compare</button></div>`;
@@ -1131,7 +1134,7 @@
 
       const row = document.createElement("div");
       row.className = "row";
-      row.innerHTML = `<div class="title">#${m.rank} ${escapeHtml(place)} · ${m.score.toFixed(3)}</div><div class="muted small">rotated ${m.theta > 0 ? "+" : ""}${Math.round(m.theta)}°${flip}, ${m.side_km.toFixed(0)} km square · <a href="#" data-compare>compare on the map</a></div>
+      row.innerHTML = `<div class="title">#${m.rank} ${escapeHtml(place)} · ${m.score.toFixed(3)}</div><div class="muted small">rotated ${thetaOf(m) > 0 ? "+" : ""}${Math.round(thetaOf(m))}°${flip}, ${m.side_km.toFixed(0)} km square · <a href="#" data-compare>compare on the map</a></div>
         <div class="strip"><div><canvas></canvas><span>home</span></div><div><canvas></canvas><span>match</span></div><div><canvas></canvas><span>overlay</span></div></div>`;
       const cs = row.querySelectorAll("canvas");
       if (win) {
@@ -1344,8 +1347,9 @@
     else if (a.continuity >= 0.7) points.push(`The matched shoreline runs in long continuous stretches; the largest connected piece covers ${pct(a.largestShare)} of your coastline.`);
     if (a.matchCoastExplained < a.homeCoastMatched - 0.2) points.push(`The match has extra shoreline of its own: only ${pct(a.matchCoastExplained)} of its coast corresponds to yours, so it is more intricate than home.`);
     else if (a.matchCoastExplained > a.homeCoastMatched + 0.2) points.push(`The match has less shoreline than home: ${pct(a.matchCoastExplained)} of its coast corresponds to yours, but much of yours has no counterpart, so it is a simpler coast.`);
-    if (m.flip) points.push("This match is mirrored: the sea sits on the opposite side compared with home.");
-    if (Math.abs(m.theta) >= 30) points.push(`It is rotated ${Math.round(Math.abs(m.theta))} degrees, so the coast faces a different direction than yours.`);
+    if (m.mirror === "ns") points.push("This match is mirrored north to south: the sea sits on the same side as home but the sun comes from the other direction, as across the equator.");
+    else if (m.flip) points.push("This match is mirrored: the sea sits on the opposite side compared with home.");
+    if (Math.abs(thetaOf(m)) >= 30) points.push(`It is rotated ${Math.round(Math.abs(thetaOf(m)))} degrees, so the coast faces a different direction than yours.`);
     return { summary, points };
   }
   function drawWhy(canvas, a, n) {
@@ -1365,7 +1369,7 @@
     const bandKm = Math.round(bandPx * res / 100) / 10;
     const place = m.place || fmtCoords(m.dot_lat, m.dot_lon);
     $("why-title").textContent = `Why #${m.rank} ${place} matched`;
-    $("why-meta").textContent = `score ${m.score.toFixed(3)} · mask ${m.mask_score.toFixed(2)} · coast ${m.coast_score.toFixed(2)} · rotated ${m.theta > 0 ? "+" : ""}${Math.round(m.theta)}°${m.flip ? ", mirrored" : ""}, ${m.side_km.toFixed(0)} km square${note ? " · " + note : ""}`;
+    $("why-meta").textContent = `score ${m.score.toFixed(3)} · mask ${m.mask_score.toFixed(2)} · coast ${m.coast_score.toFixed(2)} · rotated ${thetaOf(m) > 0 ? "+" : ""}${Math.round(thetaOf(m))}°${mirrorText(m)}, ${m.side_km.toFixed(0)} km square${note ? " · " + note : ""}`;
     drawWhy($("why-canvas"), a, n);
     $("why-agree").textContent = `${Math.round(a.agree * 100)}%`;
     $("why-home-coast").textContent = `${Math.round(a.homeCoastMatched * 100)}%`;
@@ -1552,13 +1556,13 @@
     const place = m.place || fmtCoords(m.dot_lat, m.dot_lon);
     $("compare-title").textContent = `#${m.rank} ${place}`;
     $("compare-meta").innerHTML = "";
-    $("compare-meta").textContent = `score ${m.score.toFixed(3)} · rotated ${m.theta > 0 ? "+" : ""}${Math.round(m.theta)}°${m.flip ? ", mirrored" : ""}, ${m.side_km.toFixed(0)} km square · ${run.params.home ? fmtKm(haversineKm(run.params.home.lat, run.params.home.lon, m.dot_lat, m.dot_lon)) + " from home" : "drawn coastline"} · dot lands at ${fmtCoords(m.dot_lat, m.dot_lon)}`;
+    $("compare-meta").textContent = `score ${m.score.toFixed(3)} · rotated ${thetaOf(m) > 0 ? "+" : ""}${Math.round(thetaOf(m))}°${mirrorText(m)}, ${m.side_km.toFixed(0)} km square · ${run.params.home ? fmtKm(haversineKm(run.params.home.lat, run.params.home.lon, m.dot_lat, m.dot_lon)) + " from home" : "drawn coastline"} · dot lands at ${fmtCoords(m.dot_lat, m.dot_lon)}`;
     const gmap = document.createElement("a");
     gmap.href = `https://www.google.com/maps/search/?api=1&query=${m.dot_lat.toFixed(5)},${m.dot_lon.toFixed(5)}`;
     gmap.target = "_blank"; gmap.rel = "noopener"; gmap.textContent = "open in Google Maps";
     $("compare-meta").append(" · ", gmap);
     $("compare-home-caption").textContent = `${drawn ? "Your drawing" : "Home"} · ${run.params.side_km} km square`;
-    $("compare-match-caption").textContent = `${place}${m.flip ? " · mirrored, labels off" : ""}`;
+    $("compare-match-caption").textContent = `${place}${m.mirror === "ns" ? " · mirrored north–south, labels off" : m.flip ? " · mirrored, labels off" : ""}`;
     for (const cm of [compare.home, compare.match]) for (const id of ["coast", "coast-ok"]) if (cm.getLayer(id)) { cm.setPaintProperty(id, "line-width", 2.5); cm.setPaintProperty(id, "line-opacity", 0.9); }
     if (m.vector) {
       const wanted = compare.index;
@@ -1639,7 +1643,7 @@
     ctx.font = '400 24px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
     const apart = run.params.home ? ` · ${fmtKm(haversineKm(run.params.home.lat, run.params.home.lon, m.dot_lat, m.dot_lon))} apart` : "";
     const climateText = m.climate ? ` · climate ${run.home_climate ? run.home_climate + " → " : ""}${m.climate}` : "";
-    ctx.fillText(`score ${m.score.toFixed(3)} · ${scoreLabel(m.score)[0]} · rotated ${m.theta > 0 ? "+" : ""}${Math.round(m.theta)}°${m.flip ? ", mirrored" : ""}, ${m.side_km.toFixed(0)} km square${apart}${climateText}`, gap, 140);
+    ctx.fillText(`score ${m.score.toFixed(3)} · ${scoreLabel(m.score)[0]} · rotated ${thetaOf(m) > 0 ? "+" : ""}${Math.round(thetaOf(m))}°${mirrorText(m)}, ${m.side_km.toFixed(0)} km square${apart}${climateText}`, gap, 140);
     const y = header;
     if (run.params.center) {
       const p0 = compare.home.project([run.params.home.lon, run.params.home.lat]);
@@ -1653,13 +1657,86 @@
     const p1 = compare.match.project([m.dot_lon, m.dot_lat]);
     drawPane(ctx, compare.match, gap * 2 + pane, y, pane, !!m.flip, p1, m);
     drawCaption(ctx, run.params.home ? `Home · ${run.params.side_km} km square` : `Your drawing · ${run.params.side_km} km square`, gap + 16, y + pane - 16);
-    drawCaption(ctx, `${matchName}${m.flip ? " · mirrored" : ""}`, gap * 2 + pane + 16, y + pane - 16);
+    drawCaption(ctx, `${matchName}${m.mirror === "ns" ? " · mirrored north–south" : m.flip ? " · mirrored" : ""}`, gap * 2 + pane + 16, y + pane - 16);
     ctx.fillStyle = "#6b7280";
     ctx.font = '400 18px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
     ctx.textBaseline = "alphabetic";
     const attribution = layerPrefs.basemap === "satellite" ? "Imagery © Esri, Maxar, Earthstar Geographics" : layerPrefs.basemap === "topo" ? "Map © OpenTopoMap (CC-BY-SA), data © OpenStreetMap contributors" : "Map data © OpenStreetMap contributors, © OpenMapTiles, tiles by OpenFreeMap";
     ctx.fillText(`silentoplayz.github.io/coastline-twin · ${attribution}`, gap, H - 24);
     return new Promise((resolve) => card.toBlob(resolve, "image/png"));
+  }
+  async function fetchMatchWindow(home, center, drawn, m) {
+    await ensurePool(workerCount());
+    const r = await pool.call(0, { type: "window", match: m });
+    return r.window.join("");
+  }
+  function comparisonLink(run, m) {
+    const u = new URL(location.href);
+    u.search = "";
+    u.searchParams.set("side", String(run.params.side_km));
+    if (run.params.home) {
+      u.searchParams.set("lat", run.params.home.lat.toFixed(4));
+      u.searchParams.set("lon", run.params.home.lon.toFixed(4));
+      if (run.params.center && (Math.abs(run.params.center.lat - run.params.home.lat) > 1e-6 || Math.abs(run.params.center.lon - run.params.home.lon) > 1e-6)) {
+        u.searchParams.set("clat", run.params.center.lat.toFixed(4));
+        u.searchParams.set("clon", run.params.center.lon.toFixed(4));
+      }
+    } else if (run.template && run.template.land) {
+      const n = run.template.n, land = landFrom(run.template.land);
+      const bytes = new Uint8Array(Math.ceil(n * n / 8));
+      for (let k = 0; k < n * n; k++) if (land[k]) bytes[k >> 3] |= 1 << (k & 7);
+      const packed = btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      u.searchParams.set("d", `${n}.${packed}`);
+      const half = n * run.template.res / 2;
+      u.searchParams.set("dot", `${Math.max(0, Math.min(n - 1, Math.floor((run.template.dot[0] + half) / run.template.res)))},${Math.max(0, Math.min(n - 1, Math.floor((half - run.template.dot[1]) / run.template.res)))}`);
+    }
+    u.searchParams.set("m", [m.center_lat.toFixed(4), m.center_lon.toFixed(4), m.theta.toFixed(1), m.flip ? 1 : 0, m.scale, m.score.toFixed(3), (m.mask_score || 0).toFixed(2), (m.coast_score || 0).toFixed(2)].join(","));
+    if (m.place) u.searchParams.set("place", m.place);
+    if (m.climate) u.searchParams.set("cl", m.climate);
+    return u.toString();
+  }
+  async function copyComparisonLink() {
+    const m = compare.list && compare.list[compare.index];
+    if (!compare.run || !m) return;
+    const link = comparisonLink(compare.run, m);
+    try { await navigator.clipboard.writeText(link); toast("Link to this comparison copied"); }
+    catch (e) { prompt("Copy this link", link); }
+  }
+  $("compare-link").addEventListener("click", copyComparisonLink);
+  $("card-link").addEventListener("click", copyComparisonLink);
+  async function openSharedComparison(q) {
+    const parts = (q.get("m") || "").split(",").map(Number);
+    if (parts.length < 5 || parts.some((v) => !isFinite(v))) return;
+    const [clat, clon, theta, flipN, scale, score, mask, coast] = parts;
+    for (let i = 0; i < 40 && !state.template; i++) await sleep(250);
+    if (!state.template) return;
+    const drawn = state.mode === "draw";
+    const home = drawn ? null : state.home;
+    const center = drawn ? null : effectiveCenter();
+    const m = { rank: 1, center_lat: clat, center_lon: clon, theta, flip: flipN === 1, scale, score: isFinite(score) ? score : 0, mask_score: isFinite(mask) ? mask : 0, coast_score: isFinite(coast) ? coast : 0, side_km: Math.round(Number($("side-km").value) * scale * 10) / 10, place: q.get("place") || "", climate: q.get("cl") || null };
+    const [mirror, thetaDisplay] = m.flip && Math.abs(theta) > 90 ? ["ns", ((theta - 180 + 180) % 360 + 360) % 360 - 180] : [m.flip ? "ew" : null, theta];
+    m.mirror = mirror; m.theta_display = thetaDisplay;
+    const frame = makeFrame(clat, clon);
+    const h = Number($("side-km").value) * 500;
+    m.square = [[-h, -h], [h, -h], [h, h], [-h, h]].map(([x, y]) => { const [fx, fy] = forward(x, y, theta, m.flip, scale); const [la, lo] = toLatLon(frame, fx, fy); return [lo, la]; });
+    m.square.push(m.square[0]);
+    const t = state.template;
+    const [qx, qy] = forward(t.dot[0], t.dot[1], theta, m.flip, scale);
+    [m.dot_lat, m.dot_lon] = toLatLon(frame, qx, qy);
+    try {
+      const win = await fetchMatchWindow(home, center, drawn, m);
+      m.window = win;
+    } catch (e) {
+      m.window = null;
+    }
+    const run = {
+      id: "shared", label: "Shared comparison", started: Date.now(), seconds: 0, tiles: 0,
+      params: { home, center, custom: drawn, home_name: null, side_km: Number($("side-km").value), band_px: 2 },
+      template: { n: t.n, res: t.res, land: Array.from(t.land).join(""), dot: t.dot },
+      matches: [m],
+    };
+    showRun(run);
+    openCompare(run, 0);
   }
   const cardState = { blob: null, url: null };
   $("compare-share").addEventListener("click", async () => {
@@ -1785,6 +1862,7 @@
     if (urlDraw || (!q.has("lat") && saved && saved.mode === "draw")) setMode("draw", { silent: true });
     else if (draw.land) renderDrawing();
     if (state.mode === "draw") schedulePreview();
+    if (q.has("m")) openSharedComparison(q);
     ensurePool(workerCount()).catch((e) => toast(`Could not load the land mask: ${e.message}`));
   }
   init();

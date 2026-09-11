@@ -49,6 +49,11 @@ Layers.*
 
 ## How it works
 
+The site's [About page](https://silentoplayz.github.io/coastline-twin/about.html)
+covers the method, the data sources and their licenses, how to read the
+scores, and what leaves your device. The short version:
+
+
 1. **Home square.** A square of `--side-km` kilometers centered on your home
    (or on `--center`) is rasterized from a 30 arc-second global land mask,
    about 1 km per pixel, in a local azimuthal equidistant projection so the
@@ -122,9 +127,11 @@ What the page does:
   findings: how much of your coastline the match's shoreline follows, where
   the two agree best, where they disagree and in which direction. In Compare
   the home coastline is green where the match's shoreline is within the band
-  and red where it isn't, and Share card renders the two panes as one PNG
-  with both place names, the score, and the transform, ready to post. The
-  other tabs hold the contact sheet and the downloadable files.
+  and red where it isn't. Share card renders the two panes as one PNG with
+  both place names, the score, and the transform, ready to post, and Copy
+  link gives a URL that reopens the exact comparison for anyone, with the
+  square or drawing and the match carried in the address. The other tabs
+  hold the contact sheet and the downloadable files.
 - **Layers.** The Layers button on the map picks a basemap and overlays. Basemaps:
   the five OpenFreeMap vector styles (Light, Dark, Streets, Bright, Fiord),
   OpenTopoMap, and Esri satellite imagery, none of which need an API key. Overlays: hillshade and 3D terrain from Mapzen elevation
@@ -163,6 +170,7 @@ Useful flags:
 | `--side-km 100` | Bigger square, more context, coarser pixels |
 | `--rot-max 180` | Try every orientation instead of plus or minus 45 degrees |
 | `--no-flip` | Do not accept mirror images |
+| `--hemisphere-flip` | Also try north-south mirrors, the alignment that pairs a south-facing bay with a north-facing one across the equator |
 | `--scales 1` | Only match at the same size |
 | `--scales 0.8,1,1.25` | Add the smaller window back |
 | `--lat-band 8` | Only accept matches within 8 degrees of your absolute latitude |

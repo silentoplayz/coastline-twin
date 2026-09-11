@@ -9,7 +9,7 @@ from scipy import fft as sfft
 from scipy.ndimage import label, maximum_filter
 
 from .geo import LocalFrame, coast_band, haversine_km, is_land, sample_land
-from .template import forward
+from .template import describe_mirror, forward
 
 
 @dataclass
@@ -296,10 +296,15 @@ def refine(template, cfg, cand):
     delta = cfg.rot_step / 2
     best = None
 
+    ns = cand["flip"] and abs((cand["theta"] + 180.0) % 360.0 - 180.0) > 90.0
+
     def clamp_theta(th):
         th = (th + 180.0) % 360.0 - 180.0
         if cfg.rot_max >= 180:
             return th
+        if ns:
+            base = (th - 180.0 + 180.0) % 360.0 - 180.0
+            return (max(-cfg.rot_max, min(cfg.rot_max, base)) + 180.0 + 180.0) % 360.0 - 180.0
         return max(-cfg.rot_max, min(cfg.rot_max, th))
 
     coarse_thetas = sorted({clamp_theta(t) for t in (cand["theta"] - delta, cand["theta"], cand["theta"] + delta)})
@@ -330,6 +335,7 @@ def refine(template, cfg, cand):
         return None
     theta = (best["theta"] + 180.0) % 360.0 - 180.0
     scale = round(best["scale"], 3)
+    mirror, theta_display = describe_mirror(theta, cand["flip"])
     qx, qy = forward(template.dot_xy[0], template.dot_xy[1], theta, cand["flip"], scale)
     dot_lat, dot_lon = frame.to_latlon(qx + best["dx"], qy + best["dy"])
     climate = climate_at(float(dot_lat), float(dot_lon))
@@ -353,6 +359,8 @@ def refine(template, cfg, cand):
         "dot_lon": float(dot_lon),
         "theta": round(theta, 2),
         "flip": cand["flip"],
+        "mirror": mirror,
+        "theta_display": round(theta_display, 2),
         "scale": scale,
         "side_km": round(template.side_m * scale / 1000.0, 2),
         "square": corners,

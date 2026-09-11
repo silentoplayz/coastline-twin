@@ -26,6 +26,7 @@ def build_parser():
     p.add_argument("--rot-step", type=float, default=15.0, help="rotation step in degrees")
     p.add_argument("--scales", default="1,1.25", help="comma separated size multipliers to try")
     p.add_argument("--no-flip", action="store_true", help="do not try mirror images")
+    p.add_argument("--hemisphere-flip", action="store_true", help="also try north-south mirrors within the rotation limit")
     p.add_argument("--top", type=int, default=15, help="how many matches to keep")
     p.add_argument("--min-score", type=float, default=0.5, help="drop peaks below this score")
     p.add_argument("--detail-weight", type=float, default=0.5, help="0 scores land masks only, 1 scores coastline overlap only")
@@ -108,7 +109,7 @@ def main(argv=None):
 
     report.render_template(template, out_dir / "template.png")
     n_tiles = sum(1 for t in make_tiles(cfg) if tile_may_contain(t, cfg))
-    n_variants = len(thetas) * len(flips) * len(scales)
+    n_variants = len(thetas) * (len(flips) + (1 if args.hemisphere_flip else 0)) * len(scales)
     (out_dir / "template.json").write_text(
         json.dumps(
             {
@@ -140,7 +141,7 @@ def main(argv=None):
         return 0
 
     t0 = time.time()
-    variants = template.variants(thetas, flips, scales)
+    variants = template.variants(thetas, flips, scales, hemisphere_flip=args.hemisphere_flip)
     bar = tqdm(total=n_tiles, unit="tile")
     progress_path = out_dir / "progress.json"
     state = {"done": 0, "written": 0.0}
@@ -188,6 +189,7 @@ def main(argv=None):
         "res_m": res_m,
         "rotations": thetas,
         "flips": flips,
+        "hemisphere_flip": args.hemisphere_flip,
         "scales": scales,
         "variants": n_variants,
         "tiles": n_tiles,

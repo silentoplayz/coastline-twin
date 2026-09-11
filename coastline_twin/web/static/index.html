@@ -28,6 +28,7 @@
   </div>
   <div class="topbar-actions">
     <a class="ghost" href="https://github.com/silentoplayz/coastline-twin" target="_blank" rel="noopener" style="padding:7px 10px;text-decoration:none;color:var(--text)">GitHub</a>
+    <a class="ghost" href="/about" style="padding:7px 10px;text-decoration:none;color:var(--text)">About</a>
     <button type="button" id="tips-button" class="ghost">Tips</button>
     <button type="button" id="runs-button" class="ghost">Runs <span id="runs-count" class="count"></span></button>
     <button type="button" id="theme-toggle" class="ghost icon" aria-label="Toggle color scheme" title="Toggle light or dark">
@@ -119,6 +120,7 @@
           </select>
         </label>
         <label class="check"><input type="checkbox" id="flip" checked> Allow mirror images</label>
+        <label class="check"><input type="checkbox" id="hemisphere-flip"> Allow north–south mirrors <span class="muted small">(a south-facing bay matches a north-facing one)</span></label>
         <fieldset class="chips">
           <legend>Sizes to try</legend>
           <label><input type="checkbox" name="scale" value="0.65"> 0.65×</label>
@@ -335,6 +337,7 @@
     <button type="button" id="card-download" class="primary" style="width:auto">Download PNG</button>
     <button type="button" id="card-copy" class="ghost">Copy image</button>
     <button type="button" id="card-share" class="ghost" hidden>Share…</button>
+    <button type="button" id="card-link" class="ghost">Copy link to this comparison</button>
   </div>
 </dialog>
 
@@ -348,6 +351,7 @@
       <label class="check"><input type="checkbox" id="compare-coast" checked> Home coastline <span class="muted small">(green where matched)</span></label>
       <label class="check"><input type="checkbox" id="compare-labels" checked> Labels</label>
       <label class="check zoomer">Zoom <input type="range" id="compare-zoom" min="-2" max="2" step="0.25" value="0"></label>
+      <button type="button" id="compare-link" class="ghost small">Copy link</button>
       <button type="button" id="compare-share" class="small">Share card</button>
       <button type="button" id="compare-prev" class="ghost small" title="Previous match">‹</button>
       <button type="button" id="compare-next" class="ghost small" title="Next match">›</button>

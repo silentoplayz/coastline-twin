@@ -293,8 +293,17 @@ function buildVariant(t, p, index, theta, flip, scale) {
 
 function buildVariants(t, p) {
   const out = [];
-  for (const scale of p.scales) for (const theta of p.thetas) for (const flip of p.flips) out.push(buildVariant(t, p, out.length, theta, flip, scale));
+  for (const scale of p.scales) for (const theta of p.thetas) {
+    for (const flip of p.flips) out.push(buildVariant(t, p, out.length, theta, flip, scale));
+    if (p.hemisphere_flip) out.push(buildVariant(t, p, out.length, ((theta + 180 + 180) % 360 + 360) % 360 - 180, true, scale));
+  }
   return out;
+}
+
+function describeMirror(theta, flip) {
+  theta = ((theta + 180) % 360 + 360) % 360 - 180;
+  if (flip && Math.abs(theta) > 90) return ["ns", ((theta - 180 + 180) % 360 + 360) % 360 - 180];
+  return [flip ? "ew" : null, theta];
 }
 
 function ncc(num, std, norm, floor, count) {
@@ -419,7 +428,11 @@ async function prepare(p) {
     await ensureRegion(...reg);
   }
   const fine = buildTemplate(p, fineRes);
-  if (p.previewOnly) return { fine, coarse: { n: Math.round(p.side_m / coarseRes) }, variants: [] };
+  if (p.previewOnly) {
+    VT = null;
+    CTX = { p, fine, coarse: null, variants: [], fineZ: null, fineB: null, fineBand: null, fineCoast: null, runFull: 0 };
+    return { fine, coarse: { n: Math.round(p.side_m / coarseRes) }, variants: [] };
+  }
   const coarse = buildTemplate(p, coarseRes);
   const variants = buildVariants(coarse, p);
   const fineBand = coastBand(fine.land, null, fine.n, p.band_px);
@@ -610,9 +623,12 @@ async function refine(cand) {
   const reg = regionOf(frame, ext);
   await ensureRegion(...reg);
   const lg = sampleLocalFine(frame, ext, t.resM / 2);
+  const ns = cand.flip && Math.abs(((cand.theta + 180) % 360 + 360) % 360 - 180) > 90;
   const clampTheta = (th) => {
     th = ((th + 180) % 360 + 360) % 360 - 180;
-    return p.rot_max >= 180 ? th : Math.max(-p.rot_max, Math.min(p.rot_max, th));
+    if (p.rot_max >= 180) return th;
+    if (ns) { const base = ((th - 180 + 180) % 360 + 360) % 360 - 180; return ((Math.max(-p.rot_max, Math.min(p.rot_max, base)) + 180 + 180) % 360 + 360) % 360 - 180; }
+    return Math.max(-p.rot_max, Math.min(p.rot_max, th));
   };
   const thetas = [...new Set([cand.theta - p.rot_step / 2, cand.theta, cand.theta + p.rot_step / 2].map(clampTheta))];
   const radius = p.coarse_res;
@@ -646,11 +662,12 @@ async function refine(cand) {
   square.push(square[0]);
   let theta = ((best.theta + 180) % 360 + 360) % 360 - 180;
   const scale = Math.round(best.scale * 1000) / 1000;
+  const [mirror, thetaDisplay] = describeMirror(theta, cand.flip);
   return {
     score: best.score, mask_score: best.mask, coast_score: best.coast, coast_ncc: best.ncc, continuity: best.continuity,
     longest_km: Math.round(best.longest / 2 * t.resM / 100) / 10,
     center_lat: clat, center_lon: clon, dot_lat: dlat, dot_lon: dlon,
-    theta: Math.round(theta * 10) / 10, flip: cand.flip, scale,
+    theta: Math.round(theta * 10) / 10, flip: cand.flip, mirror, theta_display: Math.round(thetaDisplay * 10) / 10, scale,
     side_km: Math.round(p.side_m * scale / 100) / 10, square,
     window: Array.from(best.bin), coarse: cand.coarse, climate,
   };
@@ -960,6 +977,7 @@ async function refineVector(match) {
   for (const dy of [-step, 0, step]) for (const dx of [-step, 0, step]) if (dx || dy) evaluate(b0.theta, b0.dx + dx, b0.dy + dy);
   const [clat, clon] = toLatLon(frame, best.dx, best.dy);
   const theta = ((best.theta + 180) % 360 + 360) % 360 - 180;
+  const [mirror, thetaDisplay] = describeMirror(theta, match.flip);
   const [qx, qy] = forward(vt.dot[0], vt.dot[1], theta, match.flip, scale);
   const [dlat, dlon] = toLatLon(frame, qx + best.dx, qy + best.dy);
   const h = vt.halfM;
@@ -972,7 +990,7 @@ async function refineVector(match) {
   return {
     ...match, score: best.score, mask_score: best.mask, coast_score: best.coast, coast_ncc: best.ncc, continuity: best.continuity,
     longest_km: Math.round(best.longest / 2 * vt.resM / 100) / 10,
-    center_lat: clat, center_lon: clon, dot_lat: dlat, dot_lon: dlon, theta: Math.round(theta * 10) / 10, square,
+    center_lat: clat, center_lon: clon, dot_lat: dlat, dot_lon: dlon, theta: Math.round(theta * 10) / 10, mirror, theta_display: Math.round(thetaDisplay * 10) / 10, square,
     vector: true, vector_res_m: Math.round(vt.resM), vector_zoom: zoom, km_score: match.score,
   };
 }

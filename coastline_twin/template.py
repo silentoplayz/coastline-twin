@@ -134,12 +134,14 @@ class Template:
             index, float(theta), bool(flip), float(scale), m, inside, zero_mean, norm, band_zero, band_norm, count
         )
 
-    def variants(self, thetas, flips, scales):
+    def variants(self, thetas, flips, scales, hemisphere_flip=False):
         out = []
         for scale in scales:
             for theta in thetas:
                 for flip in flips:
                     out.append(self.variant(len(out), theta, flip, scale))
+                if hemisphere_flip:
+                    out.append(self.variant(len(out), (theta + 180.0 + 180.0) % 360.0 - 180.0, True, scale))
         return out
 
     def dot_offset(self, theta, flip, scale):
@@ -149,6 +151,13 @@ class Template:
         h = self.half_m
         corners = [(-h, -h), (h, -h), (h, h), (-h, h)]
         return [forward(x, y, theta, flip, scale) for x, y in corners]
+
+
+def describe_mirror(theta, flip):
+    theta = (theta + 180.0) % 360.0 - 180.0
+    if flip and abs(theta) > 90.0:
+        return "ns", (theta - 180.0 + 180.0) % 360.0 - 180.0
+    return ("ew" if flip else None), theta
 
 
 def rotation_list(rot_max, rot_step):

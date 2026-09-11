@@ -70,6 +70,7 @@ class JobRequest(PreviewRequest):
     rot_step: float = 15
     scales: list[float] = [1.0, 1.25]
     flip: bool = True
+    hemisphere_flip: bool = False
     top: int = Field(default=15, ge=1, le=100)
     min_score: float = 0.5
     detail_weight: float = Field(default=0.5, ge=0, le=1)
@@ -211,6 +212,8 @@ def _cli_args(req: PreviewRequest, name: str, out: Path, dry_run: bool):
     ]
     if not job.flip:
         args.append("--no-flip")
+    if job.hemisphere_flip:
+        args.append("--hemisphere-flip")
     if job.lat_band is not None:
         args += ["--lat-band", str(job.lat_band)]
     if job.same_hemisphere:
@@ -562,6 +565,34 @@ def vector_window(req: VectorWindowRequest):
     return {"n": vt.n, "res": vt.res_m, "band_px": vt.band_px, "home": "".join("1" if v else "0" for v in vt.land.ravel()), "match": "".join("1" if v else "0" for v in win.ravel())}
 
 
+class MatchWindowRequest(PreviewRequest):
+    match: dict
+
+
+@app.post("/api/match-window")
+def match_window(req: MatchWindowRequest):
+    from ..report import sample_match
+
+    _mask()
+    home = (req.home.lat, req.home.lon) if req.home else None
+    center = (req.center.lat, req.center.lon) if req.center else home
+    side_m = req.side_km * 1000.0
+    res_m = req.res_m or max(1000.0, side_m / 160.0)
+    if req.custom is not None:
+        template = Template(None, None, side_m, res_m, grid=_custom_grid(req.custom), dot_px=req.custom.dot)
+    elif home:
+        template = Template(home, center, side_m, res_m)
+    else:
+        raise HTTPException(422, "give a home or a drawn coastline")
+    m = req.match
+    for key in ("center_lat", "center_lon", "theta", "scale"):
+        if key not in m:
+            raise HTTPException(422, f"match needs {key}")
+    m = {**m, "flip": bool(m.get("flip"))}
+    win = sample_match(template, m)
+    return {"n": template.n, "window": "".join("1" if v else "0" for v in win.ravel())}
+
+
 @app.get("/api/health")
 def health():
     return {"ok": True, "results": str(RESULTS), "cpus": os.cpu_count()}
@@ -570,6 +601,16 @@ def health():
 @app.get("/")
 def index():
     return FileResponse(STATIC / "index.html")
+
+
+@app.get("/about")
+def about():
+    return FileResponse(ROOT / "docs" / "about.html")
+
+
+@app.get("/style.css")
+def about_style():
+    return FileResponse(ROOT / "docs" / "style.css", media_type="text/css")
 
 
 @app.get("/static/geo.js")

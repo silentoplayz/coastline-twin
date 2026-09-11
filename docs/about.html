@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>About Coastline Twin</title>
+<script>
+  try {
+    const s = localStorage.getItem("color-scheme");
+    if (s === "light" || s === "dark") {
+      document.querySelector('meta[name="color-scheme"]').content = s;
+      document.documentElement.classList.add("theme-" + s);
+    }
+  } catch (e) {}
+</script>
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23145a86'/%3E%3Cpath d='M4 22c4-2 6-8 10-8s6 8 10 8 4-4 4-4v10H4z' fill='%23d9c9a3'/%3E%3Ccircle cx='17' cy='15' r='3' fill='%23d62728'/%3E%3C/svg%3E">
+<style>
+  .doc { max-width: 820px; margin: 0 auto; padding: 24px 20px 60px; font-size: 15px; line-height: 1.6; }
+  .doc h1 { font-size: 28px; margin: 8px 0 4px; }
+  .doc h2 { font-size: 20px; text-transform: none; letter-spacing: 0; color: var(--text); margin: 34px 0 8px; }
+  .doc h3 { font-size: 16px; margin: 22px 0 6px; }
+  .doc p { margin: 0 0 12px; }
+  .doc ul, .doc ol { margin: 0 0 12px; padding-left: 22px; }
+  .doc li { margin-bottom: 6px; }
+  .doc table { border-collapse: collapse; width: 100%; font-size: 14px; margin: 8px 0 16px; }
+  .doc th, .doc td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .doc th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
+  .doc code { background: var(--panel2); padding: 1px 5px; border-radius: 4px; font-size: 13px; }
+  .doc .lede { font-size: 17px; color: var(--muted); margin-bottom: 20px; }
+  .doc .formula { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; margin: 8px 0 14px; overflow-x: auto; }
+  .doc a.back { display: inline-block; margin-bottom: 14px; }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true"></span>
+    <span class="brand-name">Coastline Twin</span>
+    <span class="brand-tag">about the method and the data</span>
+  </div>
+  <div class="topbar-actions">
+    <a class="ghost" href="./" style="padding:7px 10px;text-decoration:none;color:var(--text)">Back to the app</a>
+    <a class="ghost" href="https://github.com/silentoplayz/coastline-twin" target="_blank" rel="noopener" style="padding:7px 10px;text-decoration:none;color:var(--text)">GitHub</a>
+  </div>
+</header>
+<main class="doc">
+  <h1>How Coastline Twin works</h1>
+  <p class="lede">You give it a square of coastline. It searches every coast on the planet for the one that lines up with yours, then tells you where your home would be on the match. This page explains what happens in between, where the data comes from, what the numbers mean, and what leaves your device.</p>
+
+  <h2>The square</h2>
+  <p>Everything starts with a square around a point, 60 km across by default. The square is drawn in a local azimuthal equidistant projection centered on it, so distances and angles are true and a bay looks like a bay rather than a stretched version of one. Inside the square each pixel is land or water, taken from a global land mask at 30 arc-seconds, about 1 km. The square is sampled at 1 km per pixel, or coarser for squares wider than 160 km, with each pixel averaging a 2 by 2 sub-grid so a shoreline that cuts through a pixel counts as a fraction rather than a coin flip.</p>
+  <p>Your home dot can sit anywhere inside the square. The square's center can be moved off the dot, which is how an inland home gets a coastal square. In draw mode there is no place at all: the square is a grid you paint, at 1 km per pixel, with the dot wherever you put it.</p>
+
+  <h2>What the search compares</h2>
+  <p>The search never compares pictures of maps. It compares two binary grids: land and water. Two quantities are computed for every candidate position, orientation, and size.</p>
+  <ul>
+    <li><b>Mask agreement.</b> A normalized cross-correlation between the home square, coded land as +1 and water as −1, and the same coding of the candidate window. It is 1.0 when the two grids agree everywhere and near 0 when they are unrelated. Because it is normalized, a square that is mostly water cannot score well against open ocean just by being mostly water too.</li>
+    <li><b>Coastline agreement.</b> The same correlation, but between coastline bands: every pixel within two pixels of a land-water boundary, about 2 km. This is the term that stops a straight beach from matching every other straight beach. A straight coast and a straight coast still correlate, but a coast with inlets only correlates with a coast whose inlets sit in the same places.</li>
+  </ul>
+  <p>The two are blended with a weight you control, half and half by default, and the result is the score.</p>
+  <div class="formula">score = (1 − w) · mask + w · coast</div>
+
+  <h2>Rotations, mirrors, and sizes</h2>
+  <p>Coastlines don't come oriented the way yours is, so the home square is turned into a set of variants: rotations every 15 degrees within the range you allow, an east-west mirror image of each, and each of those at 1x and 1.25x the size. Optionally a north-south mirror is added, which is the east-west mirror turned half a circle; it is the alignment that pairs a south-facing bay in one hemisphere with a north-facing bay in the other, where the sun comes from the opposite side. Every variant is a separate template. With the defaults that is 28 templates, and each one is slid across the whole world.</p>
+  <p>Rotation changes meaning. A bay that opens to the south and one that opens to the north have the same shape and different light, wind, and weather. The default 45 degree limit keeps a match roughly facing the way home faces. "Any orientation" finds pure shape and nothing else.</p>
+
+  <h2>Sliding a template across the planet</h2>
+  <p>The world between 81 degrees south and 81 degrees north is cut into overlapping tiles about 1,200 km across, each drawn in its own local projection so shapes stay true everywhere from the equator to Norway. Tiles with no coastline are skipped. On each tile every template is correlated with the land grid at every position at once using a fast Fourier transform; that is what makes a planet-wide search take minutes rather than days. The best-scoring positions on each tile become candidates.</p>
+  <p>The website does this in two passes because it runs in your browser: a coarse pass at about 2.5 km per pixel with a 512-point transform finds candidates, and a refine pass rescores each at 1 km. The Python engine, which the local app uses, searches at 1 km directly. Both then refine the same way.</p>
+
+  <h2>Refinement</h2>
+  <p>A candidate from the sliding pass is aligned only to the nearest rotation step and pixel. Refinement re-aligns it: small shifts, rotations a quarter step either side, and sizes of 0.9x and 1.1x the matched size, all scored again. Two things change at this stage.</p>
+  <ul>
+    <li><b>Continuity.</b> The coast term becomes half band correlation and half continuity. Continuity looks at the runs of home shoreline that the match follows and gives full credit to a run once it reaches half the square's width. Long unbroken stretches of matched shoreline score higher than the same number of matched pixels scattered along the coast.</li>
+    <li><b>The rotation limit is enforced exactly</b>, so a match can't drift past the range you chose.</li>
+  </ul>
+
+  <h2>Sharpening with vector coastlines</h2>
+  <p>The land mask cannot see anything narrower than a kilometer. After the search, the top twenty matches are re-scored against shorelines built from OpenFreeMap's vector tiles, at about 250 m: the water polygons in a few zoom-9 tiles around each match are rasterized into a grid, and the same is done for the home square. Ocean, lakes, rivers, and ponds all count as water, so tidal creeks and river mouths appear that the mask never had. Each match is nudged by up to two degrees and a few hundred meters, scored with the same terms, and the list is re-ranked. The Compare and Why views use these 250 m grids as well.</p>
+  <p>This is the one stage that fetches map data during a search: roughly 10 MB of tiles for twenty matches, cached after the first run. If the tiles can't be reached, matches keep their 1 km scores and the page says so.</p>
+
+  <h2>Reading the numbers</h2>
+  <table>
+    <thead><tr><th>Score</th><th>Label</th><th>What it usually means</th></tr></thead>
+    <tbody>
+      <tr><td>0.80 and above</td><td>close twin</td><td>The shoreline traces the same course almost everywhere in the square.</td></tr>
+      <tr><td>0.70 to 0.80</td><td>strong</td><td>The outline agrees and much of the detail lines up.</td></tr>
+      <tr><td>0.60 to 0.70</td><td>outline match</td><td>The same general kind of coast, with detail that runs a different course.</td></tr>
+      <tr><td>below 0.60</td><td>loose</td><td>Broad shape only.</td></tr>
+    </tbody>
+  </table>
+  <p>Scores are not comparable across squares. A marsh coast full of creeks can't reach the scores a smooth bay reaches, because nothing matches a maze as closely as a curve matches a curve. Compare matches within a run, and read the two bars on each card: a high mask bar with a low coast bar means the land is in the right place but the shoreline differs.</p>
+  <p>The Why view shows the difference between the two squares pixel by pixel, how much of your coastline the match follows within the band, how much of the match's coastline corresponds to yours, and how the matched shoreline is distributed. In Compare, the home coastline is drawn green where the match's shoreline runs within the band and red where it doesn't.</p>
+
+  <h2>Filters</h2>
+  <p>Shape knows nothing about climate, language, cost, or whether there is a grocery store, so the filters run before the ranking. The climate filter keeps matches in the same Köppen-Geiger class as home, in the same group, or in groups you choose. A hemisphere filter keeps the seasons the same. A region limit searches inside one part of the world. The class is read at the point where your dot lands; a dot that falls on an ocean cell takes the nearest land class within about 50 km.</p>
+
+  <h2>Limits worth knowing</h2>
+  <ul>
+    <li>The land mask is 1 km. Squares under about 40 km are only a few dozen pixels across and every coast looks alike. Sharpening helps the final ranking but not the search.</li>
+    <li>Lakes count as water in the mask, so an inland lake shore can match a sea coast. The map's land-mask overlay shows exactly what the matcher sees.</li>
+    <li>Marsh is land in the mask and often water in the vector tiles. A marsh coast therefore looks smoother at 1 km than at 250 m, and its twins change between the two stages.</li>
+    <li>Refinement can reveal a better alignment at 0.9x or 1.1x, so a match may report a size that was not in your list.</li>
+    <li>Place names come from the nearest named place to the landing dot, which is sometimes an island or a district rather than a town.</li>
+  </ul>
+
+  <h2>Data sources and licenses</h2>
+  <table>
+    <thead><tr><th>Data</th><th>Used for</th><th>Source and license</th></tr></thead>
+    <tbody>
+      <tr><td>Global land mask, 30 arc-second</td><td>The search itself; the preview; the land-mask overlay</td><td>GLOBE elevation data, public domain, via the <a href="https://github.com/toddkarin/global-land-mask">global-land-mask</a> package (MIT). Shipped as 376 one-bit PNG tiles, 1.3 MB.</td></tr>
+      <tr><td>OpenFreeMap vector tiles</td><td>Basemaps; vector sharpening; 250 m views</td><td><a href="https://openfreemap.org">OpenFreeMap</a>, free with no key. Tile schema © <a href="https://www.openmaptiles.org/">OpenMapTiles</a>. Data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, ODbL.</td></tr>
+      <tr><td>Köppen-Geiger climate map</td><td>Climate at the dot; the climate filter</td><td>Rubel, Brugger, Haslinger and Auer (2017), <a href="https://koeppen-geiger.vu-wien.ac.at/">University of Vienna</a>, 1986 to 2010 period, via the <a href="https://github.com/cwru-sdle/kgcpy">kgcpy</a> package (BSD). Resampled to 5 arc-minutes, 240 KB.</td></tr>
+      <tr><td>OpenTopoMap</td><td>Topographic basemap</td><td>© <a href="https://opentopomap.org">OpenTopoMap</a>, CC BY-SA. Data © OpenStreetMap contributors and SRTM.</td></tr>
+      <tr><td>Esri World Imagery</td><td>Satellite basemap</td><td>© Esri, Maxar, Earthstar Geographics, and the GIS User Community, under Esri's terms of use.</td></tr>
+      <tr><td>Mapzen terrain tiles</td><td>Hillshade and 3D terrain</td><td><a href="https://registry.opendata.aws/terrain-tiles/">Terrain Tiles on AWS Open Data</a>, sources include SRTM, ETOPO1, and national elevation datasets.</td></tr>
+      <tr><td>Photon</td><td>Address search and place names</td><td><a href="https://photon.komoot.io">Photon by komoot</a>, Apache 2.0. Data © OpenStreetMap contributors.</td></tr>
+      <tr><td>Nominatim</td><td>Fallback geocoding</td><td><a href="https://nominatim.org">Nominatim</a>. Data © OpenStreetMap contributors.</td></tr>
+      <tr><td>MapLibre GL JS</td><td>The map</td><td><a href="https://maplibre.org">MapLibre</a>, BSD 3-Clause.</td></tr>
+    </tbody>
+  </table>
+  <p>Coastline Twin's own code is MIT licensed and lives at <a href="https://github.com/silentoplayz/coastline-twin">github.com/silentoplayz/coastline-twin</a>.</p>
+
+  <h2>What leaves your device</h2>
+  <p>The website has no server of its own. The search, the drawing, the analysis, and the share cards are computed in your browser, and saved runs live in your browser's storage. Three kinds of request go out while you use it.</p>
+  <ul>
+    <li><b>Geocoding.</b> The text you type in the address box and the coordinates you place a pin at are sent to Photon, and to Nominatim if Photon fails, to turn them into places and names. Match coordinates are sent the same way to name each match.</li>
+    <li><b>Map tiles.</b> Whatever basemap is showing requests tiles for the area on screen from its provider, as any web map does.</li>
+    <li><b>Sharpening tiles.</b> With sharpening on, the vector tiles around your home square and around the top twenty matches are fetched from OpenFreeMap, which reveals those coasts as areas of interest to that service.</li>
+  </ul>
+  <p>Nothing is logged or stored by this project. A shared link or share card contains what you see on it: your square's location or drawing, the match, and the names, so share them with the same care you would give a map of your neighborhood. The draw mode exists partly for this reason: a drawn square carries no location at all.</p>
+  <p>The local app runs the same search on your own machine with the Python engine, keeps its results in a folder you own, and makes the same three kinds of request.</p>
+
+  <h2>Reproducing a result</h2>
+  <p>Every run records its settings, and the command line accepts the same ones, so a result from the website can be reproduced with the Python engine and the other way around, apart from the small differences that come from the site's coarse pass. The README in the repository lists every flag.</p>
+</main>
+</body>
+</html>

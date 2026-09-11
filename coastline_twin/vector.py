@@ -10,7 +10,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from .geo import LocalFrame
-from .template import forward
+from .template import describe_mirror, forward
 
 TILEJSON = "https://tiles.openfreemap.org/planet"
 USER_AGENT = "coastline-twin/0.1 (https://github.com/silentoplayz/coastline-twin)"
@@ -297,6 +297,7 @@ def refine_match(vt, template, cfg, match, cache_dir):
                     best = {**sc, "theta": b0["theta"], "dx": b0["dx"] + dx, "dy": b0["dy"] + dy}
     clat, clon = frame.to_latlon(best["dx"], best["dy"])
     theta = (best["theta"] + 180.0) % 360.0 - 180.0
+    mirror, theta_display = describe_mirror(theta, match["flip"])
     qx, qy = forward(vt.dot_xy[0], vt.dot_xy[1], theta, match["flip"], scale)
     dlat, dlon = frame.to_latlon(qx + best["dx"], qy + best["dy"])
     corners = []
@@ -310,7 +311,7 @@ def refine_match(vt, template, cfg, match, cache_dir):
         "coast_ncc": float(best["ncc"]), "continuity": float(best["continuity"]),
         "longest_km": round(best["longest"] / 2 * vt.res_m / 1000.0, 1),
         "center_lat": float(clat), "center_lon": float(clon), "dot_lat": float(dlat), "dot_lon": float(dlon),
-        "theta": round(theta, 2), "square": corners, "vector": True, "vector_res_m": round(vt.res_m), "vector_zoom": zoom,
+        "theta": round(theta, 2), "mirror": mirror, "theta_display": round(theta_display, 2), "square": corners, "vector": True, "vector_res_m": round(vt.res_m), "vector_zoom": zoom,
         "km_score": match["score"],
     })
     return out

@@ -74,7 +74,7 @@ def render_sheet(template, matches, path, max_rows=12):
     for r, m in enumerate(rows):
         match_land = sample_match(template, m)
         label = m.get("place", f"{m['dot_lat']:.3f}, {m['dot_lon']:.3f}")
-        flip = ", mirrored" if m["flip"] else ""
+        flip = ", mirrored north-south" if m.get("mirror") == "ns" else (", mirrored" if m["flip"] else "")
         _panel(axes[r, 0], template.land, extent, dot, "Home square" if r == 0 else "")
         _panel(
             axes[r, 1],
@@ -88,7 +88,7 @@ def render_sheet(template, matches, path, max_rows=12):
             match_land,
             extent,
             dot,
-            f"rot {m['theta']:+.0f}°{flip}, {m['side_km']:.0f} km square",
+            f"rot {m.get('theta_display', m['theta']):+.0f}°{flip}, {m['side_km']:.0f} km square",
         )
         axes[r, 2].contour(xs, ys, template.land.astype(float), levels=[0.5], colors="#d62728", linewidths=1.2)
     fig.tight_layout()
