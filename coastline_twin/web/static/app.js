@@ -1348,7 +1348,7 @@
       ["coast", { "line-color": "#d62728", "line-width": 2.5, "line-opacity": 0.9 }],
       ["coast-ok", { "line-color": "#2ca02c", "line-width": 2.5, "line-opacity": 0.9 }],
     ]) {
-      if (!m.getSource(id)) m.addSource(id, { type: "geojson", data: m.__data && m.__data[id] || { type: "FeatureCollection", features: [] } });
+      if (!m.getSource(id)) m.addSource(id, { type: "geojson", tolerance: 0, data: m.__data && m.__data[id] || { type: "FeatureCollection", features: [] } });
       if (!m.getLayer(id)) m.addLayer({ id, type: "line", source: id, paint });
     }
     for (const id of ["coast", "coast-ok"]) m.setLayoutProperty(id, "visibility", $("compare-coast").checked ? "visible" : "none");
