@@ -321,7 +321,7 @@
     for (const radius of [30, 200]) {
       try {
         const data = await fetchJson(`https://photon.komoot.io/reverse?lat=${lat}&lon=${lon}&radius=${radius}&osm_tag=place&limit=4&lang=en`);
-        const f = (data.features || []).find((x) => x.properties && x.properties.name && !["square", "locality", "plot", "house"].includes(x.properties.osm_value));
+        const f = (data.features || []).find((x) => x.properties && x.properties.name && !/^\d+$/.test(x.properties.name) && !["square", "locality", "plot", "house"].includes(x.properties.osm_value));
         if (f) return placeName(f.properties);
       } catch (e) {}
     }
@@ -364,11 +364,18 @@
   }
   function thetaOf(m) { return m.theta_display != null ? m.theta_display : m.theta; }
   function mirrorText(m) { return m.mirror === "ns" ? ", mirrored north–south" : (m.flip ? ", mirrored" : ""); }
-  function scoreLabel(score) {
-    if (score >= 0.8) return ["close twin", "chip-strong"];
-    if (score >= 0.7) return ["strong", "chip-good"];
-    if (score >= 0.6) return ["outline match", "chip-fair"];
+  function scoreLabel(score, run) {
+    const adjusted = score - (run && run.label_shift ? run.label_shift : 0);
+    if (adjusted >= 0.8) return ["close twin", "chip-strong"];
+    if (adjusted >= 0.7) return ["strong", "chip-good"];
+    if (adjusted >= 0.6) return ["outline match", "chip-fair"];
     return ["loose", "chip-weak"];
+  }
+  function labelShift(run) {
+    const deltas = (run.matches || []).filter((m) => m.vector && typeof m.km_score === "number").map((m) => m.score - m.km_score).sort((a, b) => a - b);
+    if (deltas.length < 3) return 0;
+    const mid = deltas[Math.floor(deltas.length / 2)];
+    return Math.min(0, mid);
   }
   function fmtKm(km) {
     return `${Math.round(km).toLocaleString()} km`;
@@ -1064,6 +1071,7 @@
     return run.matches.filter((m) => !view.hideMirrored || !m.flip).map((m) => [key(m), m]).sort((a, b) => a[0] - b[0]).map(([, m]) => m);
   }
   function showRun(run) {
+    run.label_shift = labelShift(run);
     state.run = run;
     $("results").hidden = false;
     $("results-title").textContent = run.label;
@@ -1112,7 +1120,7 @@
       li.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target === li) selectMatch(m.rank, true); });
       li.innerHTML = `
         <div class="rank">${m.rank}</div>
-        <div class="place">${escapeHtml(place)} <span class="chip ${scoreLabel(m.score)[1]}">${scoreLabel(m.score)[0]}</span></div>
+        <div class="place">${escapeHtml(place)} <span class="chip ${scoreLabel(m.score, run)[1]}">${scoreLabel(m.score, run)[0]}</span></div>
         <div class="score">${m.score.toFixed(3)}</div>
         <div class="detail">rotated ${thetaOf(m) > 0 ? "+" : ""}${Math.round(thetaOf(m))}°${flip}, ${m.side_km.toFixed(0)} km square · ${distance}${m.climate ? ` · ${m.climate}${m.climate_name ? " " + m.climate_name : ""}` : ""}${m.vector ? ` · sharpened at ${m.vector_res_m} m` : ""} · dot at ${fmtCoords(m.dot_lat, m.dot_lon)}</div>
         <div class="bars"><span>mask</span><div class="bar"><i style="width:${Math.max(0, m.mask_score) * 100}%"></i></div><span>coast</span><div class="bar"><i style="width:${Math.max(0, m.coast_score) * 100}%"></i></div></div>
@@ -1643,7 +1651,7 @@
     ctx.font = '400 24px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
     const apart = run.params.home ? ` · ${fmtKm(haversineKm(run.params.home.lat, run.params.home.lon, m.dot_lat, m.dot_lon))} apart` : "";
     const climateText = m.climate ? ` · climate ${run.home_climate ? run.home_climate + " → " : ""}${m.climate}` : "";
-    ctx.fillText(`score ${m.score.toFixed(3)} · ${scoreLabel(m.score)[0]} · rotated ${thetaOf(m) > 0 ? "+" : ""}${Math.round(thetaOf(m))}°${mirrorText(m)}, ${m.side_km.toFixed(0)} km square${apart}${climateText}`, gap, 140);
+    ctx.fillText(`score ${m.score.toFixed(3)} · ${scoreLabel(m.score, run)[0]} · rotated ${thetaOf(m) > 0 ? "+" : ""}${Math.round(thetaOf(m))}°${mirrorText(m)}, ${m.side_km.toFixed(0)} km square${apart}${climateText}`, gap, 140);
     const y = header;
     if (run.params.center) {
       const p0 = compare.home.project([run.params.home.lon, run.params.home.lat]);
@@ -1847,7 +1855,7 @@
       if (q.has("clat") && q.has("clon")) { saved.centerMode = "custom"; saved.center = { lat: Number(q.get("clat")), lon: Number(q.get("clon")) }; }
     }
     if (saved && saved.home) {
-      $("side-km").value = saved.side || 60;
+      if (!urlDraw) $("side-km").value = saved.side || 60;
       $("side-out").textContent = $("side-km").value;
       $("address").value = saved.address || "";
       if (saved.centerMode === "custom" && saved.center) {

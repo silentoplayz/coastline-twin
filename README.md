@@ -47,6 +47,18 @@ inside the shareable link.*
 including the 1 km land mask the matcher sees, are a click away under
 Layers.*
 
+## Share cards
+
+Every comparison can be rendered as a card. These four came from full-planet
+searches with the default settings, sharpening included.
+
+| | |
+| --- | --- |
+| ![False Bay at Cape Town matched with Lampung Bay in Sumatra, mirrored](docs/images/card-false-bay.jpg) | ![The Bay of Naples matched with Gwadar Bay on the Iran and Pakistan border](docs/images/card-naples.jpg) |
+| *False Bay, Cape Town, and Lampung Bay in Sumatra, mirrored. The whole crescent traces green.* | *The Bay of Naples and Gwadar Bay in Iran. Ischia and Capri show red: islands the match doesn't have.* |
+| ![Mont-Saint-Michel Bay matched with a fjord on Baffin Island](docs/images/card-mont-saint-michel.jpg) | ![A drawn fjord matched with Mobile Bay in Alabama](docs/images/card-fjord.jpg) |
+| *Mont-Saint-Michel Bay and a fjord on Baffin Island. Same shape, temperate against tundra; the climate filter exists for this.* | *A fjord drawn by hand and its closest real coast. The drawing carries no location at all.* |
+
 ## How it works
 
 The site's [About page](https://silentoplayz.github.io/coastline-twin/about.html)
