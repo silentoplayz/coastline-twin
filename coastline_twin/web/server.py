@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from ..geo import set_land_source
+from ..geo import LocalFrame, set_land_source
 from ..search import SearchConfig, climate_at, climate_name, make_tiles, tile_may_contain
 from ..template import Template
 
@@ -514,6 +514,52 @@ def mask_png(w: float, s: float, e: float, n: float, width: int = 768, height: i
     buf = io.BytesIO()
     Image.fromarray(rgba, "RGBA").save(buf, "PNG", optimize=False)
     return Response(buf.getvalue(), media_type="image/png", headers={"Cache-Control": "no-store"})
+
+
+class VectorWindowRequest(BaseModel):
+    job_id: str
+    rank: int
+
+
+@app.post("/api/vector-window")
+def vector_window(req: VectorWindowRequest):
+    import numpy as np
+
+    from ..vector import VectorTemplate, land_grid
+
+    path, job = _load_job(req.job_id)
+    meta = _read_json(path / "matches.json")
+    tpl = _read_json(path / "template.json")
+    if not meta or not tpl:
+        raise HTTPException(404, "run has no results")
+    match = next((m for m in meta["matches"] if m.get("rank") == req.rank), None)
+    if match is None:
+        raise HTTPException(404, "no such match")
+    custom = _read_json(path / "custom.json")
+    side_m = float(tpl["side_km"]) * 1000.0
+    _mask()
+    if custom:
+        grid = np.array([ch == "1" for ch in custom["land"]], dtype=bool).reshape(custom["n"], custom["n"])
+        template = Template(None, None, side_m, float(tpl["res_m"]), grid=grid, dot_px=custom.get("dot"))
+    else:
+        template = Template(tuple(tpl["home"]), tuple(tpl["center"]), side_m, float(tpl["res_m"]))
+    cfg = SearchConfig(res_m=float(tpl["res_m"]), tile_half_m=0, min_score=0, nms_px=3, per_tile=1, home=None, exclude_km=0, min_sep_km=0, top=1, bbox=None, lat_band=None, same_hemisphere=False, workers=1, band_width=int((meta["meta"].get("band_px") or 2)))
+    cache_dir = RESULTS / ".tilecache"
+    vt = VectorTemplate(template, cfg, cache_dir)
+    frame = LocalFrame(match["center_lat"], match["center_lon"])
+    ext = template.footprint_extent(45.0, match["scale"]) + 4 * vt.res_m
+    grid, g, _ = land_grid(frame, ext, vt.res_m, cache_dir)
+    ghalf = g * vt.res_m / 2
+    c, sn = math.cos(math.radians(match["theta"])), math.sin(math.radians(match["theta"]))
+    px, py = np.meshgrid(vt.px, vt.py)
+    if match["flip"]:
+        px = -px
+    qx = match["scale"] * (c * px - sn * py)
+    qy = match["scale"] * (sn * px + c * py)
+    gc = np.clip(np.floor((qx + ghalf) / vt.res_m).astype(int), 0, g - 1)
+    gr = np.clip(np.floor((ghalf - qy) / vt.res_m).astype(int), 0, g - 1)
+    win = grid[gr, gc]
+    return {"n": vt.n, "res": vt.res_m, "band_px": vt.band_px, "home": "".join("1" if v else "0" for v in vt.land.ravel()), "match": "".join("1" if v else "0" for v in win.ravel())}
 
 
 @app.get("/api/health")

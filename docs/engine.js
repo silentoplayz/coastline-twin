@@ -872,9 +872,13 @@ function edgePixels(land, n) {
   return coast;
 }
 
+let VT_KEY = null;
+function vtKey(p) { return JSON.stringify([p.side_m, p.center || null, p.custom ? [p.custom.n, p.custom.dot, p.custom.land.length] : null, p.band_px, p.fine_res]); }
 async function vectorTemplate(p) {
-  if (VT) return VT;
-  const fine = CTX.fine;
+  const key = vtKey(p);
+  if (VT && VT_KEY === key) return VT;
+  VT_KEY = key;
+  const fine = CTX && CTX.fine && CTX.p && vtKey(CTX.p) === key ? CTX.fine : (p.custom ? { landXY: customSource(p).landXY, dot: customSource(p).dot } : { dot: toXY(makeFrame(p.center.lat, p.center.lon), p.home.lat, p.home.lon) });
   let resM = Math.max(150, Math.min(500, p.side_m / 400));
   const n = Math.round(p.side_m / resM);
   resM = p.side_m / n;
@@ -1028,6 +1032,25 @@ self.onmessage = async (ev) => {
     } else if (msg.type === "vector") {
       const out = await refineVector(msg.match);
       self.postMessage({ id: msg.id, ok: true, match: out });
+    } else if (msg.type === "vector-window") {
+      const vt = await vectorTemplate(msg.params);
+      const m = msg.match;
+      const frame = makeFrame(m.center_lat, m.center_lon);
+      const ext = footprintExtent(vt.halfM, 45, m.scale) + 4 * vt.resM;
+      const { land: grid, n: g } = await landGrid(frame, ext, vt.resM);
+      const ghalf = g * vt.resM / 2, n = vt.n;
+      const c = Math.cos(m.theta * D2R), sn = Math.sin(m.theta * D2R);
+      const win = new Uint8Array(n * n);
+      for (let r = 0; r < n; r++) for (let col = 0; col < n; col++) {
+        let px = vt.px[col], py = vt.py[r];
+        if (m.flip) px = -px;
+        const qx = m.scale * (c * px - sn * py), qy = m.scale * (sn * px + c * py);
+        let gc = Math.floor((qx + ghalf) / vt.resM), gr = Math.floor((ghalf - qy) / vt.resM);
+        if (gc < 0) gc = 0; else if (gc >= g) gc = g - 1;
+        if (gr < 0) gr = 0; else if (gr >= g) gr = g - 1;
+        win[r * n + col] = grid[gr * g + gc];
+      }
+      self.postMessage({ id: msg.id, ok: true, n, res: vt.resM, band_px: vt.bandPx, home: vt.land.buffer.slice(0), match: win.buffer }, [win.buffer]);
     } else if (msg.type === "window") {
       self.postMessage({ id: msg.id, ok: true, window: await windowFor(msg.match) });
     }

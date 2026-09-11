@@ -1439,6 +1439,41 @@
     m.__data = data;
     for (const [id, fc] of Object.entries(data)) { const src = m.getSource(id); if (src) src.setData(fc); }
   }
+  async function fetchFineWindow(run, m) {
+    await ensurePool(workerCount());
+    const p = { side_m: run.params.side_km * 1000, center: run.params.center, home: run.params.home, custom: run.params.center ? null : { n: run.template.n, land: run.template.land, dot: [Math.floor((run.template.dot[0] + run.template.n * run.template.res / 2) / run.template.res), Math.floor((run.template.n * run.template.res / 2 - run.template.dot[1]) / run.template.res)] }, band_px: run.params.band_px || 2, fine_res: run.template.res };
+    return pool.call(0, { type: "vector-window", params: p, match: m });
+  }
+  const fineCache = new Map();
+  async function loadFineOverlay(run, m) {
+    const key = `${run.id}:${m.rank}`;
+    if (fineCache.has(key)) return fineCache.get(key);
+    const promise = fetchFineWindow(run, m).then((r) => ({ n: r.n, res: r.res, bandPx: r.band_px, home: r.home instanceof ArrayBuffer ? new Uint8Array(r.home) : landFrom(r.home), match: r.match instanceof ArrayBuffer ? new Uint8Array(r.match) : landFrom(r.match) }));
+    fineCache.set(key, promise);
+    promise.catch(() => fineCache.delete(key));
+    return promise;
+  }
+  function applyFineOverlay(run, m, fine) {
+    const drawn = !run.params.center;
+    const homeFrame = drawn ? null : makeFrame(run.params.center.lat, run.params.center.lon);
+    const matchFrame = makeFrame(m.center_lat, m.center_lon);
+    const toLonLat = (frame, x, y) => { const [la, lo] = toLatLon(frame, x, y); return [lo, la]; };
+    const segs = coastSegments(fine.home, fine.n, fine.res);
+    const band = bandOf(fine.match, fine.n, fine.bandPx);
+    const half = fine.n * fine.res / 2;
+    const ok = (seg) => {
+      const mx = (seg[0][0] + seg[1][0]) / 2, my = (seg[0][1] + seg[1][1]) / 2;
+      const c = Math.min(fine.n - 1, Math.max(0, Math.floor((mx + half) / fine.res))), r = Math.min(fine.n - 1, Math.max(0, Math.floor((half - my) / fine.res)));
+      const c2 = Math.min(fine.n - 1, Math.max(0, Math.round((mx + half) / fine.res) - 1)), r2 = Math.min(fine.n - 1, Math.max(0, Math.round((half - my) / fine.res) - 1));
+      return !!(band[r * fine.n + c] || band[r2 * fine.n + c2] || band[r * fine.n + c2] || band[r2 * fine.n + c]);
+    };
+    const okSegs = segs.filter(ok), badSegs = segs.filter((sg) => !ok(sg));
+    const lines = (list, frame, transform) => ({ type: "Feature", geometry: { type: "MultiLineString", coordinates: list.map((seg) => seg.map(([x, y]) => { const [qx, qy] = transform ? forward(x, y, m.theta, m.flip, m.scale) : [x, y]; return toLonLat(frame, qx, qy); })) } });
+    if (!drawn) setCompareData(compare.home, { ...(compare.home.__data || {}), coast: { type: "FeatureCollection", features: [lines(badSegs, homeFrame, false)] }, "coast-ok": { type: "FeatureCollection", features: [lines(okSegs, homeFrame, false)] } });
+    setCompareData(compare.match, { ...(compare.match.__data || {}), coast: { type: "FeatureCollection", features: [lines(badSegs, matchFrame, true)] }, "coast-ok": { type: "FeatureCollection", features: [lines(okSegs, matchFrame, true)] } });
+    for (const cm of [compare.home, compare.match]) for (const id of ["coast", "coast-ok"]) if (cm.getLayer(id)) { cm.setPaintProperty(id, "line-width", 1.1); cm.setPaintProperty(id, "line-opacity", 0.85); }
+    $("compare-match-caption").textContent = `${m.place || fmtCoords(m.dot_lat, m.dot_lon)}${m.flip ? " · mirrored, labels off" : ""} · shoreline at ${Math.round(fine.res)} m`;
+  }
   function openCompare(run, index) {
     compare.list = state.run === run ? state.matches : run.matches;
     if (!webgl) { toast("The comparison view needs WebGL, which this browser does not provide."); return; }
@@ -1514,6 +1549,11 @@
     $("compare-meta").append(" · ", gmap);
     $("compare-home-caption").textContent = `${drawn ? "Your drawing" : "Home"} · ${run.params.side_km} km square`;
     $("compare-match-caption").textContent = `${place}${m.flip ? " · mirrored, labels off" : ""}`;
+    for (const cm of [compare.home, compare.match]) for (const id of ["coast", "coast-ok"]) if (cm.getLayer(id)) { cm.setPaintProperty(id, "line-width", 2.5); cm.setPaintProperty(id, "line-opacity", 0.9); }
+    if (m.vector) {
+      const wanted = compare.index;
+      loadFineOverlay(run, m).then((fine) => { if (compare.run === run && compare.index === wanted && $("compare-dialog").open) applyFineOverlay(run, m, fine); }).catch(() => {});
+    }
     $("compare-prev").disabled = compare.index === 0;
     $("compare-next").disabled = compare.index >= compare.list.length - 1;
   }
