@@ -115,8 +115,9 @@ What the page does:
   findings: how much of your coastline the match's shoreline follows, where
   the two agree best, where they disagree and in which direction. In Compare
   the home coastline is green where the match's shoreline is within the band
-  and red where it isn't. The other tabs hold the contact sheet and the
-  downloadable files.
+  and red where it isn't, and Share card renders the two panes as one PNG
+  with both place names, the score, and the transform, ready to post. The
+  other tabs hold the contact sheet and the downloadable files.
 - **Layers.** The Layers button on the map picks a basemap and overlays. Basemaps:
   the five OpenFreeMap vector styles (Light, Dark, Streets, Bright, Fiord),
   OpenTopoMap, and Esri satellite imagery, none of which need an API key. Overlays: hillshade and 3D terrain from Mapzen elevation

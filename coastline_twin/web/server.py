@@ -80,6 +80,7 @@ class JobRequest(PreviewRequest):
     min_sep_km: Optional[float] = None
     workers: Optional[int] = None
     label: Optional[str] = None
+    home_name: Optional[str] = None
 
 
 def _throttled_get(url, params, timeout=10):

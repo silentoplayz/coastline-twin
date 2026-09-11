@@ -313,6 +313,19 @@
   </div>
 </dialog>
 
+<dialog id="card-dialog" class="card" closedby="any">
+  <div class="dialog-head">
+    <h2>Share card</h2>
+    <button type="button" id="card-close" class="ghost icon" aria-label="Close">×</button>
+  </div>
+  <img id="card-image" alt="Share card: home and match side by side">
+  <div class="button-row" style="margin-top:10px">
+    <button type="button" id="card-download" class="primary" style="width:auto">Download PNG</button>
+    <button type="button" id="card-copy" class="ghost">Copy image</button>
+    <button type="button" id="card-share" class="ghost" hidden>Share…</button>
+  </div>
+</dialog>
+
 <dialog id="compare-dialog" class="compare" closedby="any">
   <div class="dialog-head">
     <div>
@@ -323,6 +336,7 @@
       <label class="check"><input type="checkbox" id="compare-coast" checked> Home coastline <span class="muted small">(green where matched)</span></label>
       <label class="check"><input type="checkbox" id="compare-labels" checked> Labels</label>
       <label class="check zoomer">Zoom <input type="range" id="compare-zoom" min="-2" max="2" step="0.25" value="0"></label>
+      <button type="button" id="compare-share" class="small">Share card</button>
       <button type="button" id="compare-prev" class="ghost small" title="Previous match">‹</button>
       <button type="button" id="compare-next" class="ghost small" title="Next match">›</button>
       <button type="button" id="compare-close" class="ghost icon" aria-label="Close">×</button>

@@ -161,7 +161,7 @@
   const centerMarker = makePin("pin-center", { draggable: true });
   let homeOnMap = false, centerOnMap = false;
   const resultMarkers = [];
-  window.__coastlineTwin = { map, reverseGeocode: (...a) => reverseGeocode(...a) };
+  window.__coastlineTwin = { map, reverseGeocode: (...a) => reverseGeocode(...a), placeLevelName: (...a) => placeLevelName(...a) };
   function ringOf(corners) { return corners.map(([lat, lon]) => [lon, lat]).concat([[corners[0][1], corners[0][0]]]); }
   function polygonFeature(ring, props = {}) { return { type: "Feature", geometry: { type: "Polygon", coordinates: [ring] }, properties: props }; }
   function boundsOf(points) {
@@ -254,6 +254,26 @@
     const h = sideKm * 500;
     const frame = makeFrame(lat, lon);
     return [[-h, -h], [h, -h], [h, h], [-h, h]].map(([x, y]) => toLatLon(frame, x, y));
+  }
+  async function placeLevelName(lat, lon) {
+    for (const radius of [30, 200]) {
+      try {
+        const res = await fetch(`https://photon.komoot.io/reverse?lat=${lat}&lon=${lon}&radius=${radius}&osm_tag=place&limit=4&lang=en`);
+        if (!res.ok) continue;
+        const data = await res.json();
+        const f = (data.features || []).find((x) => x.properties && x.properties.name && !["square", "locality", "plot", "house"].includes(x.properties.osm_value));
+        if (f) {
+          const pr = f.properties;
+          return [pr.name, pr.city && pr.city !== pr.name ? pr.city : null, pr.state || pr.county, pr.countrycode].filter(Boolean).join(", ");
+        }
+      } catch (e) {}
+    }
+    return "";
+  }
+  function homeName() {
+    const text = $("home-address").textContent.trim();
+    if (!state.home || !text || /^(Looking up|No address|Click the map|Address lookup)/.test(text)) return null;
+    return text;
   }
   function scoreLabel(score) {
     if (score >= 0.8) return ["close twin", "chip-strong"];
@@ -697,6 +717,7 @@
       exclude_km: state.mode === "draw" ? 0 : ($("exclude-km").value === "" ? null : Number($("exclude-km").value)),
       workers: $("workers").value === "" ? null : Number($("workers").value),
       label: $("label").value.trim() || null,
+      home_name: homeName(),
     });
     return body;
   }
@@ -717,7 +738,9 @@
     if ((state.mode === "draw" ? !draw.land : !state.home) || state.running) return;
     $("run-button").disabled = true;
     try {
-      const job = await api("/api/jobs", { method: "POST", body: JSON.stringify(jobBody()) });
+      const body = jobBody();
+      if (state.mode !== "draw" && state.home) body.home_name = (await placeLevelName(state.home.lat, state.home.lon)) || body.home_name;
+      const job = await api("/api/jobs", { method: "POST", body: JSON.stringify(body) });
       toast("Search started");
       attachJob(job);
       refreshRunsCount();
@@ -794,7 +817,7 @@
     const center = meta.center ? { lat: meta.center[0], lon: meta.center[1] } : home;
     return {
       id: job.id, label: job.label || job.id, started: (job.started || 0) * 1000, seconds: meta.seconds, tiles: meta.tiles,
-      params: { home, center, custom: !home, side_km: meta.side_km || job.params.side_km, band_px: meta.band_px, same_hemisphere: filters.same_hemisphere, lat_band: filters.lat_band, bbox: filters.bbox },
+      params: { home, center, custom: !home, home_name: job.params && job.params.home_name, side_km: meta.side_km || job.params.side_km, band_px: meta.band_px, same_hemisphere: filters.same_hemisphere, lat_band: filters.lat_band, bbox: filters.bbox },
       template: t.land ? { n: t.n, res: t.res_m, land: t.land, dot: t.dot_xy_m } : null,
       matches: job.matches || [],
       files: job.files || null,
@@ -1161,7 +1184,7 @@
   function ensureCompareMaps() {
     if (compare.home) return;
     for (const key of ["home", "match"]) {
-      const m = new maplibregl.Map({ container: `compare-${key}`, style: styleFor(currentScheme()), interactive: false, attributionControl: false });
+      const m = new maplibregl.Map({ container: `compare-${key}`, style: styleFor(currentScheme()), interactive: false, attributionControl: false, canvasContextAttributes: { preserveDrawingBuffer: true, antialias: true } });
       m.__styleKey = styleKey(currentScheme());
       m.on("style.load", () => compareLayers(m));
       compare[key] = m;
@@ -1250,6 +1273,133 @@
     $("compare-prev").disabled = compare.index === 0;
     $("compare-next").disabled = compare.index >= compare.list.length - 1;
   }
+  function shortName(name) {
+    if (!name) return "";
+    const parts = name.split(", ").map((x) => x.trim()).filter(Boolean);
+    if (parts.length <= 3) return parts.join(", ");
+    return `${parts[0]}, ${parts[parts.length - 1]}`;
+  }
+  function mapIdle(m) {
+    return new Promise((resolve) => { if (m.loaded()) resolve(); else m.once("idle", resolve); });
+  }
+  function fitText(ctx, text, maxWidth, size, weight) {
+    let s = size;
+    do { ctx.font = `${weight} ${s}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`; s -= 2; } while (ctx.measureText(text).width > maxWidth && s > 14);
+    return s + 2;
+  }
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+  }
+  function drawPane(ctx, source, x, y, size, mirrored, dotCss, m) {
+    const canvas = source.getCanvas();
+    const cw = canvas.width, ch = canvas.height;
+    const s = Math.min(cw, ch);
+    const sx = (cw - s) / 2, sy = (ch - s) / 2;
+    ctx.save();
+    roundRect(ctx, x, y, size, size, 14);
+    ctx.clip();
+    if (mirrored) { ctx.translate(x + size, y); ctx.scale(-1, 1); ctx.drawImage(canvas, sx, sy, s, s, 0, 0, size, size); }
+    else ctx.drawImage(canvas, sx, sy, s, s, x, y, size, size);
+    ctx.restore();
+    if (dotCss) {
+      const container = source.getContainer();
+      const scale = cw / container.clientWidth;
+      let px = (dotCss.x * scale - sx) * size / s, py = (dotCss.y * scale - sy) * size / s;
+      if (mirrored) px = size - px;
+      if (px >= 0 && px <= size && py >= 0 && py <= size) {
+        ctx.beginPath(); ctx.arc(x + px, y + py, 11, 0, Math.PI * 2); ctx.fillStyle = "#fff"; ctx.fill();
+        ctx.beginPath(); ctx.arc(x + px, y + py, 7.5, 0, Math.PI * 2); ctx.fillStyle = "#d62728"; ctx.fill();
+      }
+    }
+  }
+  function drawCaption(ctx, text, x, y) {
+    ctx.font = '600 20px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+    const w = ctx.measureText(text).width + 28;
+    roundRect(ctx, x, y - 34, w, 36, 18);
+    ctx.fillStyle = "rgba(255,255,255,0.92)"; ctx.fill();
+    ctx.fillStyle = "#1e232a"; ctx.textBaseline = "middle"; ctx.fillText(text, x + 14, y - 16);
+  }
+  async function buildShareCard() {
+    const run = compare.run, m = compare.list[compare.index];
+    if (!run || !m) return null;
+    await Promise.all([compare.match.loaded() ? null : mapIdle(compare.match), run.params.center && !compare.home.loaded() ? mapIdle(compare.home) : null]);
+    const W = 1600, gap = 28, header = 168, footer = 64;
+    const pane = (W - 3 * gap) / 2;
+    const H = header + pane + footer + gap;
+    const card = document.createElement("canvas");
+    card.width = W; card.height = H;
+    const ctx = card.getContext("2d");
+    ctx.fillStyle = "#f4f1ea"; ctx.fillRect(0, 0, W, H);
+    const homeName = run.params.home ? shortName(run.params.home_name || fmtCoords(run.params.home.lat, run.params.home.lon)) : "A coastline I drew";
+    const matchName = shortName(m.place || fmtCoords(m.dot_lat, m.dot_lon));
+    ctx.fillStyle = "#145a86";
+    ctx.font = '700 22px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'; ctx.textBaseline = "alphabetic";
+    ctx.fillText("COASTLINE TWIN", gap, 44);
+    ctx.fillStyle = "#1e232a";
+    const title = `${homeName}  ↔  ${matchName}`;
+    const size = fitText(ctx, title, W - 2 * gap, 46, 700);
+    ctx.font = `700 ${size}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+    ctx.fillText(title, gap, 98);
+    ctx.fillStyle = "#6b7280";
+    ctx.font = '400 24px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+    const apart = run.params.home ? ` · ${fmtKm(haversineKm(run.params.home.lat, run.params.home.lon, m.dot_lat, m.dot_lon))} apart` : "";
+    ctx.fillText(`score ${m.score.toFixed(3)} · ${scoreLabel(m.score)[0]} · rotated ${m.theta > 0 ? "+" : ""}${Math.round(m.theta)}°${m.flip ? ", mirrored" : ""}, ${m.side_km.toFixed(0)} km square${apart}`, gap, 140);
+    const y = header;
+    if (run.params.center) {
+      const p0 = compare.home.project([run.params.home.lon, run.params.home.lat]);
+      drawPane(ctx, compare.home, gap, y, pane, false, p0, m);
+    } else {
+      ctx.save(); roundRect(ctx, gap, y, pane, pane, 14); ctx.clip();
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage($("compare-home-canvas"), gap, y, pane, pane);
+      ctx.restore();
+    }
+    const p1 = compare.match.project([m.dot_lon, m.dot_lat]);
+    drawPane(ctx, compare.match, gap * 2 + pane, y, pane, !!m.flip, p1, m);
+    drawCaption(ctx, run.params.home ? `Home · ${run.params.side_km} km square` : `Your drawing · ${run.params.side_km} km square`, gap + 16, y + pane - 16);
+    drawCaption(ctx, `${matchName}${m.flip ? " · mirrored" : ""}`, gap * 2 + pane + 16, y + pane - 16);
+    ctx.fillStyle = "#6b7280";
+    ctx.font = '400 18px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+    ctx.textBaseline = "alphabetic";
+    const attribution = layerPrefs.basemap === "satellite" ? "Imagery © Esri, Maxar, Earthstar Geographics" : layerPrefs.basemap === "topo" ? "Map © OpenTopoMap (CC-BY-SA), data © OpenStreetMap contributors" : "Map data © OpenStreetMap contributors, © OpenMapTiles, tiles by OpenFreeMap";
+    ctx.fillText(`silentoplayz.github.io/coastline-twin · ${attribution}`, gap, H - 24);
+    return new Promise((resolve) => card.toBlob(resolve, "image/png"));
+  }
+  const cardState = { blob: null, url: null };
+  $("compare-share").addEventListener("click", async () => {
+    $("compare-share").disabled = true;
+    try {
+      const blob = await buildShareCard();
+      if (!blob) return;
+      if (cardState.url) URL.revokeObjectURL(cardState.url);
+      cardState.blob = blob;
+      cardState.url = URL.createObjectURL(blob);
+      $("card-image").src = cardState.url;
+      $("card-share").hidden = !(navigator.canShare && navigator.canShare({ files: [new File([blob], "coastline-twin.png", { type: "image/png" })] }));
+      $("card-dialog").showModal();
+    } catch (err) {
+      toast(`Could not build the card: ${err.message}`);
+    } finally {
+      $("compare-share").disabled = false;
+    }
+  });
+  $("card-close").addEventListener("click", () => $("card-dialog").close());
+  $("card-download").addEventListener("click", () => {
+    if (!cardState.blob) return;
+    const a = document.createElement("a");
+    a.href = cardState.url; a.download = "coastline-twin.png"; a.click();
+  });
+  $("card-copy").addEventListener("click", async () => {
+    if (!cardState.blob) return;
+    try { await navigator.clipboard.write([new ClipboardItem({ "image/png": cardState.blob })]); toast("Image copied"); }
+    catch (e) { toast("Copying images is not available here. Use Download instead."); }
+  });
+  $("card-share").addEventListener("click", async () => {
+    if (!cardState.blob) return;
+    try { await navigator.share({ files: [new File([cardState.blob], "coastline-twin.png", { type: "image/png" })], title: "Coastline Twin" }); } catch (e) {}
+  });
+
   $("compare-close").addEventListener("click", () => $("compare-dialog").close());
   $("compare-prev").addEventListener("click", () => { if (compare.index > 0) { compare.index--; renderCompare(); } });
   $("compare-next").addEventListener("click", () => { if (compare.list && compare.index < compare.list.length - 1) { compare.index++; renderCompare(); } });
