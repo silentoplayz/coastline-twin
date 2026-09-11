@@ -96,7 +96,7 @@
   const noop = () => undefined;
   const nullMap = new Proxy({}, { get: (_, key) => (key === "getSource" || key === "getLayer" ? noop : key === "getBounds" ? () => null : key === "getZoom" ? () => 2 : key === "getContainer" ? () => $("map") : noop) });
   const map = webgl ? new maplibregl.Map({
-    container: "map", style: styleFor(currentScheme()), center: [-20, 30], zoom: 1.6,
+    container: "map", style: styleFor(currentScheme()), center: [-20, 30], zoom: 1.6, minZoom: 1.5,
     attributionControl: { compact: true }, canvasContextAttributes: { antialias: true },
   }) : nullMap;
   if (!webgl) {
