@@ -6,9 +6,9 @@ from typing import Optional
 
 import numpy as np
 from scipy import fft as sfft
-from scipy.ndimage import maximum_filter
+from scipy.ndimage import label, maximum_filter
 
-from .geo import LocalFrame, coast_band, haversine_km, sample_land
+from .geo import LocalFrame, coast_band, haversine_km, is_land, sample_land
 from .template import forward
 
 
@@ -38,6 +38,8 @@ class SearchConfig:
     band_width: int = 2
     detail_weight: float = 0.5
     variance_floor: float = 0.3
+    refine_per_tile: int = 6
+    rot_step: float = 15.0
     step_deg: float = 9.0
     lat_limit: float = 81.0
 
@@ -127,27 +129,160 @@ def _candidate(template, cfg, frame, tile, var, i, j, score, mask_score, coast_s
     local = LocalFrame(lat, lon)
     theta = var.theta + _local_rotation(frame, cu, cv, local)
     theta = (theta + 180.0) % 360.0 - 180.0
-    dx, dy = forward(template.dot_xy[0], template.dot_xy[1], theta, var.flip, var.scale)
-    dot_lat, dot_lon = local.to_latlon(dx, dy)
+    return {
+        "lat": lat, "lon": lon, "theta": theta, "flip": var.flip, "scale": var.scale,
+        "coarse": float(score), "coarse_mask": float(mask_score), "coarse_coast": float(coast_score),
+        "tile": [tile.lat, tile.lon],
+    }
+
+
+def _template_features(template, cfg):
+    key = "features"
+    if key in _STATE:
+        return _STATE[key]
+    n = template.n
+    vals = 2.0 * template.fraction.astype(np.float64) - 1.0
+    vz = vals - vals.mean()
+    band = coast_band(template.land, None, cfg.band_width).astype(np.float64)
+    bz = band - band.mean()
+    coast = coast_band(template.land, None, 0)
+    feats = {
+        "vz": vz, "vnorm": float(np.sqrt((vz**2).sum())),
+        "bz": bz, "bnorm": float(np.sqrt((bz**2).sum())),
+        "coast": coast, "coast_total": int(coast.sum()),
+        "run_full": max(8, int(round(n / 2))),
+        "px": (np.arange(n) + 0.5) * template.res_m - template.half_m,
+        "py": template.half_m - (np.arange(n) + 0.5) * template.res_m,
+        "subs": ((np.arange(cfg.supersample) + 0.5) / cfg.supersample - 0.5) * template.res_m,
+    }
+    _STATE[key] = feats
+    return feats
+
+
+def _local_grid(frame, ext_m, res_half):
+    g = int(math.ceil(2 * ext_m / res_half)) + 2
+    half = g * res_half / 2
+    c = (np.arange(g) + 0.5) * res_half - half
+    u, v = np.meshgrid(c, -c)
+    lat, lon = frame.to_latlon(u.ravel(), v.ravel())
+    return is_land(lat, lon).reshape(g, g), g, half, res_half
+
+
+def _window(grid, g, ghalf, gres, feats, theta, flip, scale, dx, dy):
+    ct, st = math.cos(math.radians(theta)), math.sin(math.radians(theta))
+    acc = None
+    for du in feats["subs"]:
+        for dv in feats["subs"]:
+            px, py = np.meshgrid(feats["px"] + du, feats["py"] + dv)
+            if flip:
+                px = -px
+            qx = scale * (ct * px - st * py) + dx
+            qy = scale * (st * px + ct * py) + dy
+            gc = np.clip(np.floor((qx + ghalf) / gres).astype(int), 0, g - 1)
+            gr = np.clip(np.floor((ghalf - qy) / gres).astype(int), 0, g - 1)
+            sample = grid[gr, gc].astype(np.float64)
+            acc = sample if acc is None else acc + sample
+    return acc / (len(feats["subs"]) ** 2)
+
+
+_EIGHT = np.ones((3, 3), dtype=int)
+
+
+def _continuity(coast, match_band, run_full):
+    total = int(coast.sum())
+    if total == 0:
+        return 0.0, 0
+    matched = coast & match_band
+    labels, count = label(matched, structure=_EIGHT)
+    if count == 0:
+        return 0.0, 0
+    sizes = np.bincount(labels.ravel())[1:]
+    acc = float((sizes * np.minimum(1.0, sizes / run_full)).sum())
+    return acc / total, int(sizes.max())
+
+
+def _score_window(frac, feats, cfg):
+    vals = 2.0 * frac - 1.0
+    binary = frac >= 0.5
+    wz = vals - vals.mean()
+    wnorm = float(np.sqrt((wz**2).sum()))
+    band = coast_band(binary, None, cfg.band_width)
+    bf = band.astype(np.float64)
+    bzw = bf - bf.mean()
+    bwnorm = float(np.sqrt((bzw**2).sum()))
+    mask = 0.0
+    if wnorm >= cfg.variance_floor * feats["vnorm"] and wnorm > 0:
+        mask = float(np.clip((wz * feats["vz"]).sum() / (wnorm * feats["vnorm"]), -1, 1))
+    ncc = 0.0
+    if feats["bnorm"] > 0 and bwnorm >= cfg.variance_floor * feats["bnorm"] and bwnorm > 0:
+        ncc = float(np.clip((bzw * feats["bz"]).sum() / (bwnorm * feats["bnorm"]), -1, 1))
+    cont, longest = _continuity(feats["coast"], band, feats["run_full"])
+    coast = 0.5 * max(0.0, ncc) + 0.5 * cont
+    score = (1.0 - cfg.detail_weight) * mask + cfg.detail_weight * coast
+    return {"score": score, "mask": mask, "coast": coast, "ncc": ncc, "continuity": cont, "longest": longest}
+
+
+def refine(template, cfg, cand):
+    feats = _template_features(template, cfg)
+    frame = LocalFrame(cand["lat"], cand["lon"])
+    scales = [cand["scale"] * 0.9, cand["scale"], cand["scale"] * 1.1]
+    ext = template.footprint_extent(45.0, scales[2]) + 3 * cfg.res_m
+    grid, g, ghalf, gres = _local_grid(frame, ext, cfg.res_m / 2)
+    step = cfg.res_m
+    delta = cfg.rot_step / 2
+    best = None
+
+    def evaluate(theta, scale, dx, dy):
+        nonlocal best
+        frac = _window(grid, g, ghalf, gres, feats, theta, cand["flip"], scale, dx, dy)
+        sc = _score_window(frac, feats, cfg)
+        if best is None or sc["score"] > best["score"]:
+            best = {**sc, "theta": theta, "scale": scale, "dx": dx, "dy": dy}
+
+    for scale in scales:
+        for theta in (cand["theta"] - delta, cand["theta"], cand["theta"] + delta):
+            for dy in (-2 * step, 0.0, 2 * step):
+                for dx in (-2 * step, 0.0, 2 * step):
+                    evaluate(theta, scale, dx, dy)
+    b0 = dict(best)
+    for theta in (b0["theta"] - delta / 2, b0["theta"], b0["theta"] + delta / 2):
+        for dy in (-step, 0.0, step):
+            for dx in (-step, 0.0, step):
+                if dx or dy or theta != b0["theta"]:
+                    evaluate(theta, b0["scale"], b0["dx"] + dx, b0["dy"] + dy)
+    if best["score"] < cfg.min_score:
+        return None
+    clat, clon = frame.to_latlon(best["dx"], best["dy"])
+    clat, clon = float(clat), float(clon)
+    if not point_allowed(clat, clon, cfg):
+        return None
+    theta = (best["theta"] + 180.0) % 360.0 - 180.0
+    scale = round(best["scale"], 3)
+    qx, qy = forward(template.dot_xy[0], template.dot_xy[1], theta, cand["flip"], scale)
+    dot_lat, dot_lon = frame.to_latlon(qx + best["dx"], qy + best["dy"])
     corners = []
-    for x, y in template.square_corners(theta, var.flip, var.scale):
-        clat, clon = local.to_latlon(x, y)
-        corners.append([float(clon), float(clat)])
+    for x, y in template.square_corners(theta, cand["flip"], scale):
+        la, lo = frame.to_latlon(x + best["dx"], y + best["dy"])
+        corners.append([float(lo), float(la)])
     corners.append(corners[0])
     return {
-        "score": float(score),
-        "mask_score": float(mask_score),
-        "coast_score": float(coast_score),
-        "center_lat": lat,
-        "center_lon": lon,
+        "score": float(best["score"]),
+        "mask_score": float(best["mask"]),
+        "coast_score": float(best["coast"]),
+        "coast_ncc": float(best["ncc"]),
+        "continuity": float(best["continuity"]),
+        "longest_km": round(best["longest"] / 2 * cfg.res_m / 1000.0, 1),
+        "center_lat": clat,
+        "center_lon": clon,
         "dot_lat": float(dot_lat),
         "dot_lon": float(dot_lon),
         "theta": round(theta, 2),
-        "flip": var.flip,
-        "scale": var.scale,
-        "side_km": round(template.side_m * var.scale / 1000.0, 2),
+        "flip": cand["flip"],
+        "scale": scale,
+        "side_km": round(template.side_m * scale / 1000.0, 2),
         "square": corners,
-        "tile": [tile.lat, tile.lon],
+        "coarse": cand["coarse"],
+        "tile": cand["tile"],
     }
 
 
@@ -229,8 +364,13 @@ def process_tile(tile):
             template, cfg, frame, tile, var, r - var.size // 2, c - var.size // 2,
             best[r, c], best_mask[r, c], best_coast[r, c],
         )
-        if cand is not None:
-            out.append(cand)
+        if cand is None:
+            continue
+        refined = refine(template, cfg, cand)
+        if refined is not None:
+            out.append(refined)
+        if len(out) >= cfg.refine_per_tile:
+            break
     return out
 
 

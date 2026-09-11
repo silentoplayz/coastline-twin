@@ -144,6 +144,37 @@ function coastBand(binary, valid, n, width) {
   return cur;
 }
 
+function continuity(homeCoast, matchBand, n, runFull) {
+  const matched = new Uint8Array(n * n);
+  let total = 0;
+  for (let k = 0; k < n * n; k++) if (homeCoast[k]) { total++; if (matchBand[k]) matched[k] = 1; }
+  if (!total) return { continuity: 0, longest: 0, matched: 0 };
+  const seen = new Uint8Array(n * n);
+  const stack = new Int32Array(n * n);
+  let acc = 0, longest = 0, matchedCount = 0;
+  for (let start = 0; start < n * n; start++) {
+    if (!matched[start] || seen[start]) continue;
+    let top = 0, size = 0;
+    stack[top++] = start;
+    seen[start] = 1;
+    while (top > 0) {
+      const k = stack[--top];
+      size++;
+      const r = (k / n) | 0, c = k % n;
+      for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
+        const rr = r + dr, cc = c + dc;
+        if (rr < 0 || rr >= n || cc < 0 || cc >= n) continue;
+        const kk = rr * n + cc;
+        if (matched[kk] && !seen[kk]) { seen[kk] = 1; stack[top++] = kk; }
+      }
+    }
+    matchedCount += size;
+    acc += size * Math.min(1, size / runFull);
+    if (size > longest) longest = size;
+  }
+  return { continuity: acc / total, longest, matched: matchedCount / total };
+}
+
 function zeroMean(values, valid, n) {
   let sum = 0, count = 0;
   for (let k = 0; k < n * n; k++) if (!valid || valid[k]) { sum += values[k]; count++; }
@@ -301,7 +332,8 @@ async function prepare(p) {
   for (let k = 0; k < fineVals.length; k++) fineVals[k] = 2 * fine.frac[k] - 1;
   const fz = zeroMean(fineVals, null, fine.n);
   const fb = zeroMean(Float64Array.from(fineBand), null, fine.n);
-  CTX = { p, fine, coarse, variants, fineZ: fz, fineB: fb, fineBand };
+  const fineCoast = coastBand(fine.land, null, fine.n, 0);
+  CTX = { p, fine, coarse, variants, fineZ: fz, fineB: fb, fineBand, fineCoast, runFull: Math.max(8, Math.round(fine.n / 2)) };
   return { fine, coarse, variants };
 }
 
@@ -452,13 +484,13 @@ function windowFromGrid(lg, t, theta, flip, scale, dx, dy, ss) {
 }
 
 function scoreWindow(frac, n, p) {
-  const { fineZ, fineB } = CTX;
+  const { fineZ, fineB, fineCoast, runFull } = CTX;
   const vals = new Float64Array(n * n), bin = new Uint8Array(n * n);
   for (let k = 0; k < n * n; k++) { vals[k] = 2 * frac[k] - 1; bin[k] = frac[k] >= 0.5 ? 1 : 0; }
   const wz = zeroMean(vals, null, n);
   const band = coastBand(bin, null, n, p.band_px);
   const bz = zeroMean(Float64Array.from(band), null, n);
-  let mask = 0, coast = 0;
+  let mask = 0, ncc = 0;
   if (wz.norm >= p.variance_floor * fineZ.norm && wz.norm > 0) {
     let num = 0;
     for (let k = 0; k < n * n; k++) num += wz.values[k] * fineZ.values[k];
@@ -467,15 +499,18 @@ function scoreWindow(frac, n, p) {
   if (fineB.norm > 0 && bz.norm >= p.variance_floor * fineB.norm && bz.norm > 0) {
     let num = 0;
     for (let k = 0; k < n * n; k++) num += bz.values[k] * fineB.values[k];
-    coast = Math.max(-1, Math.min(1, num / (bz.norm * fineB.norm)));
+    ncc = Math.max(-1, Math.min(1, num / (bz.norm * fineB.norm)));
   }
-  return { score: (1 - p.detail_weight) * mask + p.detail_weight * coast, mask, coast, bin };
+  const runs = continuity(fineCoast, band, n, runFull);
+  const coast = 0.5 * Math.max(0, ncc) + 0.5 * runs.continuity;
+  return { score: (1 - p.detail_weight) * mask + p.detail_weight * coast, mask, coast, ncc, continuity: runs.continuity, longest: runs.longest, bin };
 }
 
 async function refine(cand) {
   const { p, fine: t } = CTX;
   const frame = makeFrame(cand.lat, cand.lon);
-  const ext = footprintExtent(t.halfM, 45, cand.scale) + p.coarse_res * 1.5 + t.resM;
+  const scales = [cand.scale * 0.9, cand.scale, cand.scale * 1.1];
+  const ext = footprintExtent(t.halfM, 45, scales[2]) + p.coarse_res * 1.5 + t.resM;
   const reg = regionOf(frame, ext);
   await ensureRegion(...reg);
   const lg = sampleLocalFine(frame, ext, t.resM / 2);
@@ -483,35 +518,38 @@ async function refine(cand) {
   const radius = p.coarse_res;
   const step = t.resM;
   let best = null;
-  const evaluate = (theta, dx, dy) => {
-    const frac = windowFromGrid(lg, t, theta, cand.flip, cand.scale, dx, dy, p.supersample);
+  const evaluate = (theta, scale, dx, dy) => {
+    const frac = windowFromGrid(lg, t, theta, cand.flip, scale, dx, dy, p.supersample);
     const sc = scoreWindow(frac, t.n, p);
-    if (!best || sc.score > best.score) best = { ...sc, theta, dx, dy };
+    if (!best || sc.score > best.score) best = { ...sc, theta, scale, dx, dy };
   };
   const r2 = Math.floor(radius / (2 * step)) * 2 * step;
-  for (const theta of thetas) {
-    for (let dy = -r2; dy <= r2 + 1e-6; dy += 2 * step) for (let dx = -r2; dx <= r2 + 1e-6; dx += 2 * step) evaluate(theta, dx, dy);
+  for (const scale of scales) for (const theta of thetas) {
+    for (let dy = -r2; dy <= r2 + 1e-6; dy += 2 * step) for (let dx = -r2; dx <= r2 + 1e-6; dx += 2 * step) evaluate(theta, scale, dx, dy);
   }
   const b0 = { ...best };
-  for (let dy = -step; dy <= step; dy += step) for (let dx = -step; dx <= step; dx += step) if (dx || dy) evaluate(b0.theta, b0.dx + dx, b0.dy + dy);
+  const fine = [b0.theta - p.rot_step / 4, b0.theta, b0.theta + p.rot_step / 4];
+  for (const theta of fine) for (let dy = -step; dy <= step; dy += step) for (let dx = -step; dx <= step; dx += step) if (dx || dy || theta !== b0.theta) evaluate(theta, b0.scale, b0.dx + dx, b0.dy + dy);
   if (best.score < p.min_score) return null;
   const [clat, clon] = toLatLon(frame, best.dx, best.dy);
   if (!pointAllowed(clat, clon, p)) return null;
-  const [qx, qy] = forward(t.dot[0], t.dot[1], best.theta, cand.flip, cand.scale);
+  const [qx, qy] = forward(t.dot[0], t.dot[1], best.theta, cand.flip, best.scale);
   const [dlat, dlon] = toLatLon(frame, qx + best.dx, qy + best.dy);
   const h = t.halfM;
   const square = [[-h, -h], [h, -h], [h, h], [-h, h]].map(([x, y]) => {
-    const [fx, fy] = forward(x, y, best.theta, cand.flip, cand.scale);
+    const [fx, fy] = forward(x, y, best.theta, cand.flip, best.scale);
     const [la, lo] = toLatLon(frame, fx + best.dx, fy + best.dy);
     return [lo, la];
   });
   square.push(square[0]);
   let theta = ((best.theta + 180) % 360 + 360) % 360 - 180;
+  const scale = Math.round(best.scale * 1000) / 1000;
   return {
-    score: best.score, mask_score: best.mask, coast_score: best.coast,
+    score: best.score, mask_score: best.mask, coast_score: best.coast, coast_ncc: best.ncc, continuity: best.continuity,
+    longest_km: Math.round(best.longest / 2 * t.resM / 100) / 10,
     center_lat: clat, center_lon: clon, dot_lat: dlat, dot_lon: dlon,
-    theta: Math.round(theta * 10) / 10, flip: cand.flip, scale: cand.scale,
-    side_km: Math.round(p.side_m * cand.scale / 100) / 10, square,
+    theta: Math.round(theta * 10) / 10, flip: cand.flip, scale,
+    side_km: Math.round(p.side_m * scale / 100) / 10, square,
     window: Array.from(best.bin), coarse: cand.coarse,
   };
 }

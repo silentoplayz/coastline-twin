@@ -33,7 +33,12 @@ checked against.
    The band term is what stops a straight beach from matching every other
    straight beach. `--detail-weight` sets the blend and `--band-px` the band
    width, 1.0 is identical.
-5. **Results.** Peaks are deduplicated, the home neighborhood is excluded, and
+5. **Refine.** The best peaks of every tile are re-aligned locally: small
+   shifts, rotations of a quarter step, and sizes of 0.9x and 1.1x the
+   matched size. At this stage the coast term becomes half band correlation
+   and half continuity, which credits long unbroken stretches of matched
+   shoreline and discounts scattered pixels.
+6. **Results.** Peaks are deduplicated, the home neighborhood is excluded, and
    the top matches are written as JSON, GeoJSON, a contact sheet PNG, and an
    HTML report with map links. The dot is carried through the same rotation,
    mirror, and scale, so its landing point is reported per match.

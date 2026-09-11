@@ -1061,7 +1061,35 @@
       if (homeCoast[k]) { hc++; cell.coast++; if (matchBand[k]) { hcMatched++; cell.coastOk++; cls[k] = 4; } else cls[k] = 5; }
       if (matchCoast[k]) { mc++; if (homeBand[k]) mcMatched++; }
     }
-    return { cls, agree: agree / (n * n), homeCoastMatched: hc ? hcMatched / hc : 0, matchCoastExplained: mc ? mcMatched / mc : 0, missing, extra, cells, homeBand, matchBand };
+    const runs = runsOf(homeCoast, matchBand, n, Math.max(8, Math.round(n / 2)));
+    return { cls, agree: agree / (n * n), homeCoastMatched: hc ? hcMatched / hc : 0, matchCoastExplained: mc ? mcMatched / mc : 0, missing, extra, cells, homeBand, matchBand, continuity: runs.continuity, longest: runs.longest };
+  }
+  function runsOf(homeCoast, matchBand, n, runFull) {
+    const matched = new Uint8Array(n * n);
+    let total = 0;
+    for (let k = 0; k < n * n; k++) if (homeCoast[k]) { total++; if (matchBand[k]) matched[k] = 1; }
+    if (!total) return { continuity: 0, longest: 0 };
+    const seen = new Uint8Array(n * n), stack = new Int32Array(n * n);
+    let acc = 0, longest = 0;
+    for (let start = 0; start < n * n; start++) {
+      if (!matched[start] || seen[start]) continue;
+      let top = 0, size = 0;
+      stack[top++] = start; seen[start] = 1;
+      while (top > 0) {
+        const k = stack[--top];
+        size++;
+        const r = (k / n) | 0, c = k % n;
+        for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
+          const rr = r + dr, cc = c + dc;
+          if (rr < 0 || rr >= n || cc < 0 || cc >= n) continue;
+          const kk = rr * n + cc;
+          if (matched[kk] && !seen[kk]) { seen[kk] = 1; stack[top++] = kk; }
+        }
+      }
+      acc += size * Math.min(1, size / runFull);
+      if (size > longest) longest = size;
+    }
+    return { continuity: acc / total, longest };
   }
   function whyText(a, m, run) {
     const pct = (v) => `${Math.round(v * 100)}%`;
@@ -1085,6 +1113,8 @@
       if (share > 0.65) points.push(`Overall the match has less land than home: ${pct(a.missing / (m.n * m.n))} of the square is land for you and water there.`);
       else if (share < 0.35) points.push(`Overall the match has more land than home: ${pct(a.extra / (m.n * m.n))} of the square is water for you and land there.`);
     }
+    if (a.homeCoastMatched >= 0.5 && a.continuity < a.homeCoastMatched * 0.6) points.push(`The matched shoreline comes in short scattered pieces rather than long stretches; the longest connected run is about ${fmtKm(a.longest / 2 * run.template.res / 1000)}.`);
+    else if (a.continuity >= 0.7) points.push(`The matched shoreline runs in long continuous stretches, the longest connected run about ${fmtKm(a.longest / 2 * run.template.res / 1000)}.`);
     if (a.matchCoastExplained < a.homeCoastMatched - 0.2) points.push(`The match has extra shoreline of its own: only ${pct(a.matchCoastExplained)} of its coast corresponds to yours, so it is more intricate than home.`);
     else if (a.matchCoastExplained > a.homeCoastMatched + 0.2) points.push(`The match has less shoreline than home: ${pct(a.matchCoastExplained)} of its coast corresponds to yours, but much of yours has no counterpart, so it is a simpler coast.`);
     if (m.flip) points.push("This match is mirrored: the sea sits on the opposite side compared with home.");
@@ -1120,6 +1150,8 @@
     $("why-home-coast").textContent = `${Math.round(a.homeCoastMatched * 100)}%`;
     $("why-match-coast").textContent = `${Math.round(a.matchCoastExplained * 100)}%`;
     $("why-score").textContent = m.score.toFixed(3);
+    $("why-continuity").textContent = `${Math.round(a.continuity * 100)}%`;
+    $("why-longest").textContent = fmtKm(a.longest / 2 * run.template.res / 1000);
     const text = whyText(a, { ...m, n }, run);
     $("why-summary").textContent = text.summary;
     $("why-points").innerHTML = text.points.map((t) => `<li>${escapeHtml(t)}</li>`).join("");
