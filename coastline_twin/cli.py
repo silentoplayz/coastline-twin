@@ -4,6 +4,8 @@ import os
 import time
 from pathlib import Path
 
+import numpy as np
+
 from tqdm import tqdm
 
 from .search import SearchConfig, make_tiles, run_search, tile_may_contain
@@ -15,7 +17,8 @@ def build_parser():
         prog="coastline-twin",
         description="Find coastlines elsewhere on Earth that look like the one around you.",
     )
-    p.add_argument("--home", nargs=2, type=float, metavar=("LAT", "LON"), required=True, help="the dot: where you live")
+    p.add_argument("--home", nargs=2, type=float, metavar=("LAT", "LON"), help="the dot: where you live")
+    p.add_argument("--template", metavar="FILE", help="JSON drawn coastline {n, land, dot} instead of a place")
     p.add_argument("--center", nargs=2, type=float, metavar=("LAT", "LON"), help="square center, defaults to home")
     p.add_argument("--side-km", type=float, default=60.0, help="side of the square snapshot in km")
     p.add_argument("--res-m", type=float, help="meters per pixel, default max(1000, side/160)")
@@ -42,16 +45,25 @@ def build_parser():
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
-    home = (args.home[0], args.home[1])
+    if not args.home and not args.template:
+        print("Give --home LAT LON or --template FILE.")
+        return 2
+    home = (args.home[0], args.home[1]) if args.home else None
     center = tuple(args.center) if args.center else home
     side_m = args.side_km * 1000.0
     res_m = args.res_m or max(1000.0, side_m / 160.0)
+    grid = dot_px = None
+    if args.template:
+        spec = json.loads(Path(args.template).read_text())
+        g = int(spec["n"])
+        grid = np.array([ch == "1" for ch in spec["land"]], dtype=bool).reshape(g, g)
+        dot_px = spec.get("dot")
     scales = [float(s) for s in args.scales.split(",") if s.strip()]
     thetas = rotation_list(args.rot_max, args.rot_step)
     flips = [False] if args.no_flip else [False, True]
     workers = args.workers or max(1, min((os.cpu_count() or 2) - 2, 12))
 
-    template = Template(home, center, side_m, res_m, args.supersample, args.band_px)
+    template = Template(home, center, side_m, res_m, args.supersample, args.band_px, grid=grid, dot_px=dot_px)
     stats = template.stats()
     if template.n < 24:
         print(f"warning: the square is only {template.n} px wide at {res_m:.0f} m/px, matches will be coarse")
@@ -69,7 +81,7 @@ def main(argv=None):
         nms_px=max(3, template.n // 2),
         per_tile=40,
         home=home,
-        exclude_km=args.exclude_km if args.exclude_km is not None else 2 * args.side_km,
+        exclude_km=(args.exclude_km if args.exclude_km is not None else 2 * args.side_km) if home else 0.0,
         min_sep_km=args.min_sep_km if args.min_sep_km is not None else args.side_km,
         top=args.top,
         bbox=tuple(args.bbox) if args.bbox else None,
@@ -108,8 +120,9 @@ def main(argv=None):
             }
         )
     )
+    where = f"centered {center[0]:.4f}, {center[1]:.4f}" if center else "drawn by hand"
     print(
-        f"Home square: {args.side_km:g} km centered {center[0]:.4f}, {center[1]:.4f} at {res_m:.0f} m/px "
+        f"Home square: {args.side_km:g} km {where} at {res_m:.0f} m/px "
         f"({template.n} px). Land {stats['land_fraction'] * 100:.0f}%, coast ratio {stats['coast_ratio']:.2f}."
     )
     print(

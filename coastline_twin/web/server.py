@@ -47,9 +47,16 @@ class Location(BaseModel):
     lon: float = Field(ge=-180, le=180)
 
 
+class Custom(BaseModel):
+    n: int = Field(ge=8, le=256)
+    land: str
+    dot: list[float]
+
+
 class PreviewRequest(BaseModel):
-    home: Location
+    home: Optional[Location] = None
     center: Optional[Location] = None
+    custom: Optional[Custom] = None
     side_km: float = Field(default=60, ge=5, le=1000)
     res_m: Optional[float] = None
     same_hemisphere: bool = False
@@ -162,9 +169,26 @@ def reverse(lat: float, lon: float):
     return _reverse(lat, lon)
 
 
+def _custom_grid(custom: Custom):
+    import numpy as np
+
+    if len(custom.land) != custom.n * custom.n:
+        raise HTTPException(422, "drawn grid size does not match")
+    return np.array([ch == "1" for ch in custom.land], dtype=bool).reshape(custom.n, custom.n)
+
+
 def _cli_args(req: PreviewRequest, name: str, out: Path, dry_run: bool):
-    args = [sys.executable, "-m", "coastline_twin", "--home", str(req.home.lat), str(req.home.lon)]
-    if req.center is not None:
+    args = [sys.executable, "-m", "coastline_twin"]
+    if req.custom is not None:
+        path = out / name / "custom.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"n": req.custom.n, "land": req.custom.land, "dot": req.custom.dot}))
+        args += ["--template", str(path)]
+    elif req.home is not None:
+        args += ["--home", str(req.home.lat), str(req.home.lon)]
+    else:
+        raise HTTPException(422, "give a home or a drawn coastline")
+    if req.center is not None and req.custom is None:
         args += ["--center", str(req.center.lat), str(req.center.lon)]
     args += ["--side-km", str(req.side_km), "--out", str(out), "--name", name]
     if req.res_m:
@@ -219,11 +243,16 @@ def _mask():
 @app.post("/api/preview")
 def preview(req: PreviewRequest):
     _mask()
-    home = (req.home.lat, req.home.lon)
+    if req.custom is None and req.home is None:
+        raise HTTPException(422, "give a home or a drawn coastline")
+    home = (req.home.lat, req.home.lon) if req.home else None
     center = (req.center.lat, req.center.lon) if req.center else home
     side_m = req.side_km * 1000.0
     res_m = req.res_m or max(1000.0, side_m / 160.0)
-    template = Template(home, center, side_m, res_m)
+    if req.custom is not None:
+        template = Template(None, None, side_m, res_m, grid=_custom_grid(req.custom), dot_px=req.custom.dot)
+    else:
+        template = Template(home, center, side_m, res_m)
     stats = template.stats()
     if stats["land_fraction"] in (0.0, 1.0):
         raise HTTPException(400, "The home square has no coastline at this size. Move the center or enlarge the square.")
@@ -232,7 +261,7 @@ def preview(req: PreviewRequest):
     cfg = SearchConfig(
         res_m=res_m, tile_half_m=600_000.0 + max_ext, min_score=0.5, nms_px=3, per_tile=1, home=home,
         exclude_km=0.0, min_sep_km=0.0, top=1, bbox=tuple(req.bbox) if req.bbox and len(req.bbox) == 4 else None,
-        lat_band=req.lat_band, same_hemisphere=req.same_hemisphere, workers=1,
+        lat_band=req.lat_band if home else None, same_hemisphere=req.same_hemisphere if home else False, workers=1,
     )
     tiles = sum(1 for t in make_tiles(cfg) if tile_may_contain(t, cfg))
     warnings = []
@@ -319,7 +348,7 @@ def _summary(path: Path, job: dict):
 def create_job(req: JobRequest):
     job_id = time.strftime("%Y%m%d-%H%M%S") + "-" + secrets.token_hex(2)
     path = RESULTS / job_id
-    path.mkdir(parents=True)
+    path.mkdir(parents=True, exist_ok=True)
     log = open(path / "log.txt", "w")
     proc = subprocess.Popen(
         _cli_args(req, job_id, RESULTS, False),
@@ -330,7 +359,7 @@ def create_job(req: JobRequest):
     )
     job = {
         "id": job_id,
-        "label": req.label or f"{req.side_km:g} km at {req.home.lat:.3f}, {req.home.lon:.3f}",
+        "label": req.label or (f"{req.side_km:g} km drawn coastline" if req.custom else f"{req.side_km:g} km at {req.home.lat:.3f}, {req.home.lon:.3f}"),
         "status": "running",
         "started": time.time(),
         "pid": proc.pid,

@@ -185,10 +185,53 @@ function zeroMean(values, valid, n) {
   return { values: out, norm: Math.sqrt(norm), count, mean };
 }
 
+function customSource(p) {
+  const g = p.custom.n;
+  const cell = p.side_m / g;
+  const half = p.side_m / 2;
+  const grid = typeof p.custom.land === "string" ? Uint8Array.from(p.custom.land, (ch) => (ch === "1" ? 1 : 0)) : Uint8Array.from(p.custom.land);
+  const landXY = (x, y) => {
+    let c = Math.floor((x + half) / cell), r = Math.floor((half - y) / cell);
+    if (c < 0) c = 0; else if (c >= g) c = g - 1;
+    if (r < 0) r = 0; else if (r >= g) r = g - 1;
+    return grid[r * g + c];
+  };
+  const dot = [(p.custom.dot[0] + 0.5) * cell - half, half - (p.custom.dot[1] + 0.5) * cell];
+  return { landXY, dot };
+}
+
+function sampleTemplateGrid(landXY, n, resM, ss) {
+  const out = new Float32Array(n * n);
+  const half = n * resM / 2;
+  const subs = [];
+  for (let k = 0; k < ss; k++) subs.push(((k + 0.5) / ss - 0.5) * resM);
+  const inv = 1 / (ss * ss);
+  for (let r = 0; r < n; r++) {
+    const v = half - (r + 0.5) * resM;
+    for (let c = 0; c < n; c++) {
+      const u = -half + (c + 0.5) * resM;
+      let acc = 0;
+      for (const du of subs) for (const dv of subs) acc += landXY(u + du, v + dv);
+      out[r * n + c] = acc * inv;
+    }
+  }
+  return out;
+}
+
 function buildTemplate(p, resM) {
-  const frame = makeFrame(p.center.lat, p.center.lon);
   const n = Math.max(4, Math.round(p.side_m / resM));
-  const frac = sampleGrid(frame, n, resM, p.supersample);
+  let frame = null, landXY, dot, frac;
+  if (p.custom) {
+    const src = customSource(p);
+    landXY = src.landXY;
+    dot = src.dot;
+    frac = sampleTemplateGrid(landXY, n, resM, p.supersample);
+  } else {
+    frame = makeFrame(p.center.lat, p.center.lon);
+    landXY = (x, y) => { const ll = toLatLon(frame, x, y); return landAt(ll[0], ll[1]); };
+    frac = sampleGrid(frame, n, resM, p.supersample);
+    dot = toXY(frame, p.home.lat, p.home.lon);
+  }
   const land = new Uint8Array(n * n);
   let landCount = 0, edges = 0;
   for (let k = 0; k < n * n; k++) { land[k] = frac[k] >= 0.5 ? 1 : 0; landCount += land[k]; }
@@ -197,9 +240,8 @@ function buildTemplate(p, resM) {
     if (r + 1 < n && land[k] !== land[k + n]) edges++;
     if (c + 1 < n && land[k] !== land[k + 1]) edges++;
   }
-  const dot = toXY(frame, p.home.lat, p.home.lon);
   return {
-    frame, n, resM, halfM: p.side_m / 2, frac, land, dot,
+    frame, landXY, n, resM, halfM: p.side_m / 2, frac, land, dot,
     stats: { pixels: n, land_fraction: landCount / (n * n), coast_edges: edges, coast_ratio: edges / n },
   };
 }
@@ -234,8 +276,7 @@ function buildVariant(t, p, index, theta, flip, scale) {
         const qx = qx0 + du, qy = qy0 + dv;
         let sx = (c * qx + s * qy) / scale, sy = (-s * qx + c * qy) / scale;
         if (flip) sx = -sx;
-        const ll = toLatLon(t.frame, sx, sy);
-        acc += landAt(ll[0], ll[1]);
+        acc += t.landXY(sx, sy);
       }
       frac[k] = acc / (ss * ss);
     }
@@ -305,13 +346,13 @@ function maxFilter(a, n, size) {
 }
 
 function pointAllowed(lat, lon, p) {
-  if (p.same_hemisphere && (lat >= 0) !== (p.home.lat >= 0)) return false;
-  if (p.lat_band != null && Math.abs(Math.abs(lat) - Math.abs(p.home.lat)) > p.lat_band) return false;
+  if (p.home && p.same_hemisphere && (lat >= 0) !== (p.home.lat >= 0)) return false;
+  if (p.home && p.lat_band != null && Math.abs(Math.abs(lat) - Math.abs(p.home.lat)) > p.lat_band) return false;
   if (p.bbox) {
     const [a, b, c, d] = p.bbox;
     if (!(a <= lat && lat <= c && b <= lon && lon <= d)) return false;
   }
-  if (haversineKm(lat, lon, p.home.lat, p.home.lon) < p.exclude_km) return false;
+  if (p.home && haversineKm(lat, lon, p.home.lat, p.home.lon) < p.exclude_km) return false;
   return true;
 }
 
@@ -320,9 +361,11 @@ let CTX = null;
 async function prepare(p) {
   const fineRes = p.fine_res;
   const coarseRes = p.coarse_res;
-  const fineFrame = makeFrame(p.center.lat, p.center.lon);
-  const reg = regionOf(fineFrame, p.side_m * 1.5 * Math.max(...p.scales));
-  await ensureRegion(...reg);
+  if (!p.custom) {
+    const fineFrame = makeFrame(p.center.lat, p.center.lon);
+    const reg = regionOf(fineFrame, p.side_m * 1.5 * Math.max(...p.scales));
+    await ensureRegion(...reg);
+  }
   const fine = buildTemplate(p, fineRes);
   if (p.previewOnly) return { fine, coarse: { n: Math.round(p.side_m / coarseRes) }, variants: [] };
   const coarse = buildTemplate(p, coarseRes);

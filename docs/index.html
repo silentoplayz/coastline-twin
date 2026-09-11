@@ -45,6 +45,11 @@
     <form id="search-form" autocomplete="off" novalidate>
       <section class="panel">
         <h2>Where you live</h2>
+        <div class="mode-switch" role="tablist" aria-label="How to describe home">
+          <button type="button" class="mode-tab active" data-mode="place" role="tab" aria-selected="true">A place</button>
+          <button type="button" class="mode-tab" data-mode="draw" role="tab" aria-selected="false">Draw a coastline</button>
+        </div>
+        <div id="place-panel">
         <div class="search-row">
           <input type="search" id="address" name="address" placeholder="Address, place, or lat, lon" aria-label="Address or coordinates">
           <button type="submit" id="search-button">Find</button>
@@ -56,6 +61,25 @@
         </div>
         <p id="home-address" class="muted small">Click the map or drag the red pin to place your home.</p>
         <div class="button-row" style="margin-top:8px"><button type="button" id="copy-link" class="ghost small">Copy link to this spot</button></div>
+        </div>
+        <div id="draw-panel" hidden>
+          <canvas id="draw-canvas" class="draw-canvas"></canvas>
+          <div class="draw-tools">
+            <div class="button-row">
+              <button type="button" class="small tool active" data-tool="land">Land</button>
+              <button type="button" class="small tool" data-tool="water">Water</button>
+              <button type="button" class="small tool" data-tool="dot">Dot</button>
+              <label class="brush">Brush <input type="range" id="draw-brush" min="1" max="6" value="3"></label>
+            </div>
+            <div class="button-row">
+              <button type="button" id="draw-undo" class="ghost small">Undo</button>
+              <button type="button" id="draw-clear" class="ghost small">Clear</button>
+              <button type="button" id="draw-flip" class="ghost small">Flip</button>
+              <button type="button" id="draw-from-place" class="ghost small">Start from the map's square</button>
+            </div>
+          </div>
+          <p class="muted small">Paint land and water, then put the dot where "home" would be. The square is <output id="draw-side">60</output> km across, set by the Side slider below. Sand is land, blue is water.</p>
+        </div>
       </section>
 
       <section class="panel">
@@ -305,7 +329,7 @@
     </div>
   </div>
   <div class="compare-maps">
-    <div class="compare-pane"><div id="compare-home" class="compare-map"></div><span class="caption" id="compare-home-caption">Home</span></div>
+    <div class="compare-pane"><div id="compare-home" class="compare-map"></div><canvas id="compare-home-canvas" class="compare-canvas" hidden></canvas><span class="caption" id="compare-home-caption">Home</span></div>
     <div class="compare-pane"><div id="compare-match" class="compare-map"></div><span class="caption" id="compare-match-caption"></span></div>
   </div>
   <p class="notice">The match is rotated, mirrored, and scaled so its coastline sits the way yours does. Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors, © <a href="https://openmaptiles.org/" target="_blank" rel="noopener">OpenMapTiles</a>, tiles by <a href="https://openfreemap.org/" target="_blank" rel="noopener">OpenFreeMap</a>.</p>

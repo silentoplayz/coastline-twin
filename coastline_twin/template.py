@@ -43,20 +43,52 @@ class Variant:
 
 
 class Template:
-    def __init__(self, home, center, side_m, res_m, supersample=2, band_width=2):
-        self.home = (float(home[0]), float(home[1]))
-        self.center = (float(center[0]), float(center[1]))
+    def __init__(self, home, center, side_m, res_m, supersample=2, band_width=2, grid=None, dot_px=None):
         self.side_m = float(side_m)
         self.half_m = self.side_m / 2
         self.res_m = float(res_m)
         self.supersample = int(supersample)
         self.band_width = int(band_width)
-        self.frame = LocalFrame(*self.center)
-        self.fraction = sample_land(self.frame, self.half_m, self.res_m, self.supersample)
+        self.grid = None
+        if grid is not None:
+            self.home = None
+            self.center = None
+            self.frame = None
+            self.grid = np.asarray(grid, dtype=bool)
+            self.cell_m = self.side_m / self.grid.shape[0]
+            self.fraction = self._sample_grid()
+            col, row = dot_px if dot_px is not None else (self.grid.shape[0] / 2 - 0.5, self.grid.shape[0] / 2 - 0.5)
+            self.dot_xy = (float((col + 0.5) * self.cell_m - self.half_m), float(self.half_m - (row + 0.5) * self.cell_m))
+        else:
+            self.home = (float(home[0]), float(home[1]))
+            self.center = (float(center[0]), float(center[1]))
+            self.frame = LocalFrame(*self.center)
+            self.fraction = sample_land(self.frame, self.half_m, self.res_m, self.supersample)
+            hx, hy = self.frame.to_xy(self.home[0], self.home[1])
+            self.dot_xy = (float(hx), float(hy))
         self.land = self.fraction >= 0.5
         self.n = self.land.shape[0]
-        hx, hy = self.frame.to_xy(self.home[0], self.home[1])
-        self.dot_xy = (float(hx), float(hy))
+
+    def land_xy(self, x, y):
+        if self.grid is None:
+            lat, lon = self.frame.to_latlon(x, y)
+            return is_land(lat, lon)
+        g = self.grid.shape[0]
+        c = np.clip(np.floor((np.asarray(x) + self.half_m) / self.cell_m).astype(int), 0, g - 1)
+        r = np.clip(np.floor((self.half_m - np.asarray(y)) / self.cell_m).astype(int), 0, g - 1)
+        return self.grid[r, c]
+
+    def _sample_grid(self):
+        n = int(round(2 * self.half_m / self.res_m))
+        c = (np.arange(n) + 0.5) * self.res_m - n * self.res_m / 2
+        ss = self.supersample
+        sub = ((np.arange(ss) + 0.5) / ss - 0.5) * self.res_m
+        acc = np.zeros((n, n), dtype=np.float32)
+        for du in sub:
+            for dv in sub:
+                u, v = np.meshgrid(c + du, -c + dv)
+                acc += self.land_xy(u, v)
+        return acc / (ss * ss)
 
     def stats(self):
         land = self.land
@@ -87,8 +119,7 @@ class Template:
         for du in sub:
             for dv in sub:
                 sx, sy = inverse(qx + du * self.res_m, qy + dv * self.res_m, theta, flip, scale)
-                lat, lon = self.frame.to_latlon(sx[inside], sy[inside])
-                frac[inside] += is_land(lat, lon)
+                frac[inside] += self.land_xy(sx[inside], sy[inside])
         frac /= ss * ss
         count = int(inside.sum())
         vals = 2.0 * frac - 1.0

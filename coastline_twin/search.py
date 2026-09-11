@@ -70,12 +70,12 @@ def tile_may_contain(tile, cfg):
         abs_lo, abs_hi = 0.0, max(abs(lat_lo), abs(lat_hi))
     else:
         abs_lo, abs_hi = min(abs(lat_lo), abs(lat_hi)), max(abs(lat_lo), abs(lat_hi))
-    if cfg.same_hemisphere:
+    if cfg.home is not None and cfg.same_hemisphere:
         if cfg.home[0] >= 0 and lat_hi < 0:
             return False
         if cfg.home[0] < 0 and lat_lo > 0:
             return False
-    if cfg.lat_band is not None:
+    if cfg.home is not None and cfg.lat_band is not None:
         h = abs(cfg.home[0])
         if not _intervals_overlap(abs_lo, abs_hi, h - cfg.lat_band, h + cfg.lat_band):
             return False
@@ -91,15 +91,15 @@ def tile_may_contain(tile, cfg):
 
 
 def point_allowed(lat, lon, cfg):
-    if cfg.same_hemisphere and (lat >= 0) != (cfg.home[0] >= 0):
+    if cfg.home is not None and cfg.same_hemisphere and (lat >= 0) != (cfg.home[0] >= 0):
         return False
-    if cfg.lat_band is not None and abs(abs(lat) - abs(cfg.home[0])) > cfg.lat_band:
+    if cfg.home is not None and cfg.lat_band is not None and abs(abs(lat) - abs(cfg.home[0])) > cfg.lat_band:
         return False
     if cfg.bbox is not None:
         b_lat_lo, b_lon_lo, b_lat_hi, b_lon_hi = cfg.bbox
         if not (b_lat_lo <= lat <= b_lat_hi and b_lon_lo <= lon <= b_lon_hi):
             return False
-    if haversine_km(lat, lon, cfg.home[0], cfg.home[1]) < cfg.exclude_km:
+    if cfg.home is not None and haversine_km(lat, lon, cfg.home[0], cfg.home[1]) < cfg.exclude_km:
         return False
     return True
 

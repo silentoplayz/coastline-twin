@@ -104,12 +104,12 @@ def write_json(template, matches, meta, path):
 
 def write_geojson(template, matches, path):
     features = []
-    home_feature = {
-        "type": "Feature",
-        "geometry": {"type": "Point", "coordinates": [template.home[1], template.home[0]]},
-        "properties": {"kind": "home"},
-    }
-    features.append(home_feature)
+    if template.home is not None:
+        features.append({
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [template.home[1], template.home[0]]},
+            "properties": {"kind": "home"},
+        })
     for m in matches:
         props = {k: v for k, v in m.items() if k != "square"}
         features.append(
@@ -151,7 +151,7 @@ img{{max-width:100%}}
 code{{background:#f3f3f3;padding:1px 4px}}
 </style></head><body>
 <h1>Coastline Twin</h1>
-<p>Home dot at <code>{template.home[0]:.4f}, {template.home[1]:.4f}</code>, square of {template.side_m / 1000:.0f} km at {template.res_m:.0f} m per pixel.
+<p>{"Home dot at <code>" + f"{template.home[0]:.4f}, {template.home[1]:.4f}" + "</code>" if template.home is not None else "A drawn coastline"}, square of {template.side_m / 1000:.0f} km at {template.res_m:.0f} m per pixel.
 Searched {meta['tiles']} tiles, {meta['variants']} template variants, {meta['candidates']} raw peaks, in {meta['seconds']:.0f} s.</p>
 <p>Score blends two normalized cross-correlations: the land and water masks (weight {1 - meta['detail_weight']:.2f}) and the coastline band (weight {meta['detail_weight']:.2f}). 1.0 is identical. Rotation is counterclockwise, mirrored means flipped east to west.</p>
 <table><thead><tr><th>#</th><th>Score</th><th>Mask</th><th>Coast</th><th>Near</th><th>Dot lands at</th><th>Rotation</th><th>Mirrored</th><th>Square</th><th>Map</th></tr></thead>

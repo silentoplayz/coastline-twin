@@ -85,6 +85,12 @@ What the page does:
   map, or drag the red pin. The address under the coordinates comes from a
   reverse lookup. Copy link gives a URL that reopens the same spot and square,
   and the address bar keeps that link current as you move the pin.
+- **Draw a coastline.** The second tab under Where you live replaces the
+  place with a paintable square: land and water brushes, a dot for where
+  "home" would be, undo, flip, and a shortcut that copies the map's current
+  square so you can edit a real coast. The drawing rides along in the link
+  from Copy link, so a shape can be shared. Searches, Compare, and Why all
+  work the same; Compare shows the drawing where the home map would be.
 - **The square.** Slide the side length, and optionally drag a separate blue
   pin to center the square somewhere other than your home. The preview on the
   left is the exact land mask the search will use, with the pixel count, land
@@ -147,6 +153,7 @@ Useful flags:
 | `--bbox LATMIN LONMIN LATMAX LONMAX` | Restrict the search to one region |
 | `--detail-weight 0.7` | Lean harder on coastline detail than on the land mask |
 | `--band-px 1` | Count only pixels within 1 km of the shoreline as coast, stricter than the default 2 |
+| `--template shape.json` | Search for a drawn coastline instead of a place: `{"n": 60, "land": "0101…", "dot": [col, row]}` |
 | `--exclude-km 500` | Ignore everything within 500 km of home |
 | `--top 30` | Keep more matches |
 | `--dry-run` | Print the template stats and tile count, search nothing |

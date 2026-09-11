@@ -359,3 +359,13 @@ dialog.why { width: min(960px, 94vw); max-height: 90vh; overflow-y: auto; }
 :root.theme-dark .chip-fair, :root.map-dark .chip-fair { color: #f0c169; }
 .matches .empty { padding: 18px 12px; color: var(--muted); font-size: 13px; text-align: center; border: 1px dashed var(--border); border-radius: var(--radius); }
 .match:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.mode-switch { display: flex; gap: 4px; margin-bottom: 10px; background: var(--panel2); padding: 3px; border-radius: 8px; }
+.mode-tab { flex: 1; border: 0; background: transparent; padding: 6px 8px; border-radius: 6px; font-size: 13px; color: var(--muted); }
+.mode-tab.active { background: var(--panel); color: var(--text); font-weight: 600; box-shadow: 0 1px 2px rgb(0 0 0 / .12); }
+.draw-canvas { width: 100%; aspect-ratio: 1; image-rendering: pixelated; border-radius: 8px; border: 1px solid var(--border); display: block; cursor: crosshair; touch-action: none; }
+.draw-tools { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.draw-tools .tool.active { background: var(--accent); color: var(--accent-text); border-color: transparent; }
+.draw-tools .brush { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); margin-left: auto; }
+.draw-tools .brush input { width: 70px; }
+.compare-canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; image-rendering: pixelated; background: var(--panel2); }

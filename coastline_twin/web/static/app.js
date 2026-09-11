@@ -4,7 +4,7 @@
   const LAND = [217, 201, 163], WATER = [158, 202, 225], RED = [214, 39, 40];
 
   const state = {
-    home: null, center: null, centerMode: "home", bbox: null,
+    home: null, center: null, centerMode: "home", bbox: null, mode: "place", placeTemplate: null,
     previewTimer: null, previewSeq: 0, template: null,
     job: null, pollTimer: null, running: false,
     run: null, selected: null, matches: [], markers: new Map(),
@@ -267,6 +267,12 @@
   function permalink() {
     const u = new URL(location.href);
     u.search = "";
+    if (state.mode === "draw" && draw.land) {
+      u.searchParams.set("side", $("side-km").value);
+      u.searchParams.set("d", `${draw.n}.${packDrawing()}`);
+      u.searchParams.set("dot", `${draw.dot[0]},${draw.dot[1]}`);
+      return u.toString();
+    }
     if (state.home) {
       u.searchParams.set("lat", state.home.lat.toFixed(4));
       u.searchParams.set("lon", state.home.lon.toFixed(4));
@@ -294,7 +300,7 @@
     syncUrl();
     try {
       localStorage.setItem(SETTINGS_KEY, JSON.stringify({
-        home: state.home, center: state.center, centerMode: state.centerMode,
+        home: state.home, center: state.center, centerMode: state.centerMode, mode: state.mode,
         side: $("side-km").value, address: $("address").value,
       }));
     } catch (e) {}
@@ -342,7 +348,7 @@
   homeMarker.on("dragend", () => { const p = homeMarker.getLngLat(); setHome(p.lat, p.lng); });
   centerMarker.on("drag", () => { const p = centerMarker.getLngLat(); state.center = { lat: p.lat, lon: p.lng }; drawSquare(); });
   centerMarker.on("dragend", () => { schedulePreview(); saveSettings(); });
-  map.on("click", (e) => setHome(e.lngLat.lat, e.lngLat.lng));
+  map.on("click", (e) => { if (state.mode !== "draw") setHome(e.lngLat.lat, e.lngLat.lng); });
   $("home-lat").addEventListener("change", () => setHome(Number($("home-lat").value), Number($("home-lon").value || 0), { pan: true }));
   $("home-lon").addEventListener("change", () => setHome(Number($("home-lat").value || 0), Number($("home-lon").value), { pan: true }));
   document.querySelectorAll('input[name="center-mode"]').forEach((r) => r.addEventListener("change", () => {
@@ -355,6 +361,147 @@
   $("detail-weight").addEventListener("input", () => { $("detail-out").textContent = $("detail-weight").value; });
   for (const id of ["rot-max", "flip", "same-hemisphere", "lat-band"]) $(id).addEventListener("change", schedulePreview);
   document.querySelectorAll('input[name="scale"]').forEach((c) => c.addEventListener("change", schedulePreview));
+
+  const DRAW_KEY = "coastline-twin-draw";
+  const draw = { n: 60, land: null, dot: [30, 30], tool: "land", history: [], painting: false };
+  function drawGridSize() { return Math.max(48, Math.min(160, Math.round(Number($("side-km").value)))); }
+  function presetDrawing(n) {
+    const land = new Uint8Array(n * n);
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) land[r * n + c] = c + 0.25 * r < 0.62 * n ? 1 : 0;
+    return land;
+  }
+  function resampleGrid(land, n, m) {
+    if (n === m) return Uint8Array.from(land);
+    const out = new Uint8Array(m * m);
+    for (let r = 0; r < m; r++) for (let c = 0; c < m; c++) out[r * m + c] = land[Math.min(n - 1, Math.floor(r * n / m)) * n + Math.min(n - 1, Math.floor(c * n / m))];
+    return out;
+  }
+  function setDrawing(n, land, dot) {
+    draw.n = n;
+    draw.land = land;
+    draw.dot = dot || [Math.floor(n / 2), Math.floor(n / 2)];
+    draw.history = [];
+    renderDrawing();
+  }
+  function ensureDrawing() {
+    const n = drawGridSize();
+    if (!draw.land) setDrawing(n, presetDrawing(n), [Math.floor(n * 0.45), Math.floor(n / 2)]);
+    else if (draw.n !== n) setDrawing(n, resampleGrid(draw.land, draw.n, n), [Math.round(draw.dot[0] * n / draw.n), Math.round(draw.dot[1] * n / draw.n)]);
+  }
+  function renderDrawing() {
+    if (!draw.land) return;
+    drawMask($("draw-canvas"), draw.land, draw.n, [draw.dot[0] + 0.5, draw.dot[1] + 0.5]);
+    $("draw-side").textContent = $("side-km").value;
+  }
+  function saveDrawing() {
+    try { localStorage.setItem(DRAW_KEY, JSON.stringify({ n: draw.n, land: Array.from(draw.land).join(""), dot: draw.dot })); } catch (e) {}
+  }
+  function packDrawing() {
+    const bytes = new Uint8Array(Math.ceil(draw.n * draw.n / 8));
+    for (let k = 0; k < draw.n * draw.n; k++) if (draw.land[k]) bytes[k >> 3] |= 1 << (k & 7);
+    return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+  function unpackDrawing(n, text) {
+    const bin = atob(text.replace(/-/g, "+").replace(/_/g, "/"));
+    const land = new Uint8Array(n * n);
+    for (let k = 0; k < n * n; k++) if (bin.charCodeAt(k >> 3) & (1 << (k & 7))) land[k] = 1;
+    return land;
+  }
+  function drawingLandString() { return Array.from(draw.land).join(""); }
+  function cellFromEvent(ev) {
+    const rect = $("draw-canvas").getBoundingClientRect();
+    return [Math.floor((ev.clientX - rect.left) / rect.width * draw.n), Math.floor((ev.clientY - rect.top) / rect.height * draw.n)];
+  }
+  function paintAt(c0, r0) {
+    const rad = Number($("draw-brush").value) - 1;
+    const value = draw.tool === "land" ? 1 : 0;
+    for (let r = r0 - rad; r <= r0 + rad; r++) for (let c = c0 - rad; c <= c0 + rad; c++) {
+      if (r < 0 || r >= draw.n || c < 0 || c >= draw.n) continue;
+      if ((r - r0) ** 2 + (c - c0) ** 2 > rad * rad + rad * 0.5) continue;
+      draw.land[r * draw.n + c] = value;
+    }
+  }
+  function drawingChanged() {
+    renderDrawing();
+    saveDrawing();
+    saveSettings();
+    schedulePreview();
+  }
+  $("draw-canvas").addEventListener("pointerdown", (ev) => {
+    if (!draw.land) return;
+    ev.preventDefault();
+    const [c, r] = cellFromEvent(ev);
+    if (draw.tool === "dot") {
+      if (c >= 0 && c < draw.n && r >= 0 && r < draw.n) { draw.dot = [c, r]; drawingChanged(); }
+      return;
+    }
+    draw.history.push(Uint8Array.from(draw.land));
+    if (draw.history.length > 25) draw.history.shift();
+    draw.painting = true;
+    $("draw-canvas").setPointerCapture(ev.pointerId);
+    paintAt(c, r);
+    renderDrawing();
+  });
+  $("draw-canvas").addEventListener("pointermove", (ev) => {
+    if (!draw.painting) return;
+    const [c, r] = cellFromEvent(ev);
+    paintAt(c, r);
+    renderDrawing();
+  });
+  const endStroke = () => { if (draw.painting) { draw.painting = false; drawingChanged(); } };
+  $("draw-canvas").addEventListener("pointerup", endStroke);
+  $("draw-canvas").addEventListener("pointercancel", endStroke);
+  document.querySelectorAll(".draw-tools .tool").forEach((b) => b.addEventListener("click", () => {
+    draw.tool = b.dataset.tool;
+    document.querySelectorAll(".draw-tools .tool").forEach((x) => x.classList.toggle("active", x === b));
+    $("draw-canvas").style.cursor = draw.tool === "dot" ? "pointer" : "crosshair";
+  }));
+  $("draw-undo").addEventListener("click", () => { if (draw.history.length) { draw.land = draw.history.pop(); drawingChanged(); } });
+  $("draw-clear").addEventListener("click", () => { draw.history.push(Uint8Array.from(draw.land)); draw.land = presetDrawing(draw.n); drawingChanged(); });
+  $("draw-flip").addEventListener("click", () => {
+    draw.history.push(Uint8Array.from(draw.land));
+    const n = draw.n, out = new Uint8Array(n * n);
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) out[r * n + c] = draw.land[r * n + (n - 1 - c)];
+    draw.land = out;
+    draw.dot = [n - 1 - draw.dot[0], draw.dot[1]];
+    drawingChanged();
+  });
+  $("draw-from-place").addEventListener("click", () => {
+    const t = state.placeTemplate;
+    if (!t) { toast("Pick a place first, then come back to copy its square."); return; }
+    draw.history.push(Uint8Array.from(draw.land));
+    const n = draw.n;
+    draw.land = resampleGrid(t.land, t.n, n);
+    const half = t.n * t.res / 2;
+    draw.dot = [Math.max(0, Math.min(n - 1, Math.floor((t.dot[0] + half) / (t.n * t.res) * n))), Math.max(0, Math.min(n - 1, Math.floor((half - t.dot[1]) / (t.n * t.res) * n)))];
+    drawingChanged();
+  });
+  function setMode(mode, { silent = false } = {}) {
+    state.mode = mode;
+    document.querySelectorAll(".mode-tab").forEach((b) => { const on = b.dataset.mode === mode; b.classList.toggle("active", on); b.setAttribute("aria-selected", String(on)); });
+    $("place-panel").hidden = mode !== "place";
+    $("draw-panel").hidden = mode !== "draw";
+    document.querySelector('input[name="center-mode"]').closest(".choice-row").hidden = mode === "draw";
+    for (const id of ["same-hemisphere", "lat-band"]) $(id).disabled = mode === "draw";
+    $("map-hint").classList.toggle("faded", mode === "draw" || !!state.home);
+    if (mode === "draw") {
+      ensureDrawing();
+      if (homeOnMap) { homeMarker.remove(); homeOnMap = false; }
+      if (centerOnMap) { centerMarker.remove(); centerOnMap = false; }
+      setOverlay("home-square", []);
+      $("run-button").disabled = state.running;
+    } else {
+      if (state.home) { homeMarker.setLngLat([state.home.lon, state.home.lat]); if (!homeOnMap) { homeMarker.addTo(map); homeOnMap = true; } drawSquare(); }
+      $("run-button").disabled = !state.home || state.running;
+    }
+    if (!silent) { saveSettings(); schedulePreview(); }
+  }
+  document.querySelectorAll(".mode-tab").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
+  $("side-km").addEventListener("input", () => { if (state.mode === "draw") { ensureDrawing(); renderDrawing(); } });
+  function customParams() {
+    ensureDrawing();
+    return { n: draw.n, land: drawingLandString(), dot: draw.dot };
+  }
 
   const COORD_RE = /^\s*(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)\s*$/;
   const suggestState = { timer: null, ctrl: null, rows: [], query: "" };
@@ -463,8 +610,10 @@
   function landFrom(s) { return typeof s === "string" ? Uint8Array.from(s, (ch) => (ch === "1" ? 1 : 0)) : Uint8Array.from(s); }
 
   function previewBody() {
-    const body = { home: state.home, side_km: Number($("side-km").value) };
-    if (state.centerMode === "custom" && state.center) body.center = state.center;
+    const drawn = state.mode === "draw";
+    const body = { home: drawn ? null : state.home, side_km: Number($("side-km").value) };
+    if (drawn) body.custom = customParams();
+    else if (state.centerMode === "custom" && state.center) body.center = state.center;
     const res = $("res-m").value;
     if (res) body.res_m = Number(res);
     body.same_hemisphere = $("same-hemisphere").checked;
@@ -473,12 +622,12 @@
     return body;
   }
   function schedulePreview() {
-    if (!state.home) return;
+    if (state.mode === "draw" ? !draw.land : !state.home) return;
     clearTimeout(state.previewTimer);
     state.previewTimer = setTimeout(runPreview, 600);
   }
   async function runPreview() {
-    if (!state.home) return;
+    if (state.mode === "draw" ? !draw.land : !state.home) return;
     const seq = ++state.previewSeq;
     $("preview-empty").hidden = false;
     $("preview-empty").textContent = "Rendering the square…";
@@ -487,6 +636,7 @@
       const info = await api("/api/preview", { method: "POST", body: JSON.stringify(previewBody()) });
       if (seq !== state.previewSeq) return;
       state.template = { n: info.n, res: info.res_m, land: landFrom(info.land), dot: info.dot_xy_m, stats: info.stats };
+      if (state.mode === "place") state.placeTemplate = state.template;
       drawMask($("preview-canvas"), state.template.land, info.n, dotPixel(state.template));
       $("preview-canvas").hidden = false;
       $("preview-empty").hidden = true;
@@ -544,7 +694,7 @@
       same_hemisphere: $("same-hemisphere").checked,
       lat_band: $("lat-band").value === "" ? null : Number($("lat-band").value),
       bbox: state.bbox,
-      exclude_km: $("exclude-km").value === "" ? null : Number($("exclude-km").value),
+      exclude_km: state.mode === "draw" ? 0 : ($("exclude-km").value === "" ? null : Number($("exclude-km").value)),
       workers: $("workers").value === "" ? null : Number($("workers").value),
       label: $("label").value.trim() || null,
     });
@@ -564,7 +714,7 @@
 
   window.addEventListener("beforeunload", (e) => { if (state.running) { e.preventDefault(); e.returnValue = ""; } });
   $("run-button").addEventListener("click", async () => {
-    if (!state.home || state.running) return;
+    if ((state.mode === "draw" ? !draw.land : !state.home) || state.running) return;
     $("run-button").disabled = true;
     try {
       const job = await api("/api/jobs", { method: "POST", body: JSON.stringify(jobBody()) });
@@ -640,11 +790,11 @@
     const meta = job.meta || {};
     const t = job.template || {};
     const filters = meta.filters || {};
-    const home = meta.home ? { lat: meta.home[0], lon: meta.home[1] } : job.params.home;
+    const home = meta.home ? { lat: meta.home[0], lon: meta.home[1] } : (job.params && job.params.home) || null;
     const center = meta.center ? { lat: meta.center[0], lon: meta.center[1] } : home;
     return {
       id: job.id, label: job.label || job.id, started: (job.started || 0) * 1000, seconds: meta.seconds, tiles: meta.tiles,
-      params: { home, center, side_km: meta.side_km || job.params.side_km, band_px: meta.band_px, same_hemisphere: filters.same_hemisphere, lat_band: filters.lat_band, bbox: filters.bbox },
+      params: { home, center, custom: !home, side_km: meta.side_km || job.params.side_km, band_px: meta.band_px, same_hemisphere: filters.same_hemisphere, lat_band: filters.lat_band, bbox: filters.bbox },
       template: t.land ? { n: t.n, res: t.res_m, land: t.land, dot: t.dot_xy_m } : null,
       matches: job.matches || [],
       files: job.files || null,
@@ -662,11 +812,7 @@
         $("run-button").disabled = true;
       } else if (job.status === "done") {
         const run = runFromJob(job);
-        if (!state.home || Math.abs(state.home.lat - run.params.home.lat) > 1e-6 || Math.abs(state.home.lon - run.params.home.lon) > 1e-6) {
-          $("side-km").value = run.params.side_km;
-          $("side-out").textContent = run.params.side_km;
-          setHome(run.params.home.lat, run.params.home.lon);
-        }
+        restoreRunInputs(run);
         showRun(run);
       }
     } catch (err) {
@@ -696,7 +842,7 @@
       score: (m) => -m.score,
       coast: (m) => -m.coast_score,
       mask: (m) => -m.mask_score,
-      distance: (m) => haversineKm(home.lat, home.lon, m.dot_lat, m.dot_lon),
+      distance: (m) => (home ? haversineKm(home.lat, home.lon, m.dot_lat, m.dot_lon) : 0),
       rotation: (m) => Math.abs(m.theta) + (m.flip ? 1000 : 0),
     }[view.sort] || ((m) => -m.score);
     return run.matches.filter((m) => !view.hideMirrored || !m.flip).map((m) => [key(m), m]).sort((a, b) => a[0] - b[0]).map(([, m]) => m);
@@ -739,7 +885,7 @@
     matches.forEach((m, index) => {
       const place = m.place || fmtCoords(m.dot_lat, m.dot_lon);
       const flip = m.flip ? ", mirrored" : "";
-      const distance = fmtKm(haversineKm(run.params.home.lat, run.params.home.lon, m.dot_lat, m.dot_lon));
+      const distance = run.params.home ? fmtKm(haversineKm(run.params.home.lat, run.params.home.lon, m.dot_lat, m.dot_lon)) + " from home" : "drawn coastline";
       const osm = `https://www.openstreetmap.org/?mlat=${m.dot_lat.toFixed(5)}&mlon=${m.dot_lon.toFixed(5)}#map=11/${m.dot_lat.toFixed(5)}/${m.dot_lon.toFixed(5)}`;
       const gm = `https://www.google.com/maps/search/?api=1&query=${m.dot_lat.toFixed(5)},${m.dot_lon.toFixed(5)}`;
       const li = document.createElement("li");
@@ -750,7 +896,7 @@
         <div class="rank">${m.rank}</div>
         <div class="place">${escapeHtml(place)} <span class="chip ${scoreLabel(m.score)[1]}">${scoreLabel(m.score)[0]}</span></div>
         <div class="score">${m.score.toFixed(3)}</div>
-        <div class="detail">rotated ${m.theta > 0 ? "+" : ""}${Math.round(m.theta)}°${flip}, ${m.side_km.toFixed(0)} km square · ${distance} from home · dot at ${fmtCoords(m.dot_lat, m.dot_lon)}</div>
+        <div class="detail">rotated ${m.theta > 0 ? "+" : ""}${Math.round(m.theta)}°${flip}, ${m.side_km.toFixed(0)} km square · ${distance} · dot at ${fmtCoords(m.dot_lat, m.dot_lon)}</div>
         <div class="bars"><span>mask</span><div class="bar"><i style="width:${Math.max(0, m.mask_score) * 100}%"></i></div><span>coast</span><div class="bar"><i style="width:${Math.max(0, m.coast_score) * 100}%"></i></div></div>
         <div class="strip"><div><canvas></canvas><span>home</span></div><div><canvas></canvas><span>match</span></div><div><canvas></canvas><span>overlay</span></div></div>
         <div class="links"><a href="${osm}" target="_blank" rel="noopener">OpenStreetMap</a><a href="${gm}" target="_blank" rel="noopener">Google Maps</a><button type="button" class="ghost small" data-why="${m.rank}">Why?</button><button type="button" class="small" data-compare="${m.rank}">Compare</button></div>`;
@@ -1045,7 +1191,8 @@
     const m = compare.list[compare.index];
     const t = run.template;
     const land = landFrom(t.land);
-    const homeFrame = makeFrame(run.params.center.lat, run.params.center.lon);
+    const drawn = !run.params.center;
+    const homeFrame = drawn ? null : makeFrame(run.params.center.lat, run.params.center.lon);
     const matchFrame = makeFrame(m.center_lat, m.center_lon);
     const segs = coastSegments(land, t.n, t.res);
     const toLonLat = (frame, x, y) => { const [la, lo] = toLatLon(frame, x, y); return [lo, la]; };
@@ -1061,23 +1208,27 @@
     };
     const okSegs = segs.filter(segOk), badSegs = segs.filter((sg) => !segOk(sg));
     const lines = (list, frame, transform) => ({ type: "Feature", geometry: { type: "MultiLineString", coordinates: list.map((seg) => seg.map(([x, y]) => { const [qx, qy] = transform ? forward(x, y, m.theta, m.flip, m.scale) : [x, y]; return toLonLat(frame, qx, qy); })) } });
-    const homeCoast = lines(badSegs, homeFrame, false), homeCoastOk = lines(okSegs, homeFrame, false);
     const matchCoast = lines(badSegs, matchFrame, true), matchCoastOk = lines(okSegs, matchFrame, true);
     const h = t.n * t.res / 2;
-    const homeSquare = polygonFeature([[-h, -h], [h, -h], [h, h], [-h, h], [-h, -h]].map(([x, y]) => toLonLat(homeFrame, x, y)));
     const matchSquare = polygonFeature(m.square);
-    setCompareData(compare.home, { square: { type: "FeatureCollection", features: [homeSquare] }, coast: { type: "FeatureCollection", features: [homeCoast] }, "coast-ok": { type: "FeatureCollection", features: [homeCoastOk] } });
-    setCompareData(compare.match, { square: { type: "FeatureCollection", features: [matchSquare] }, coast: { type: "FeatureCollection", features: [matchCoast] }, "coast-ok": { type: "FeatureCollection", features: [matchCoastOk] } });
+    $("compare-home").hidden = drawn;
+    $("compare-home-canvas").hidden = !drawn;
     for (const d of compare.dots) d.remove();
-    compare.dots = [
-      makePin("pin-dot").setLngLat([run.params.home.lon, run.params.home.lat]).addTo(compare.home),
-      makePin("pin-dot").setLngLat([m.dot_lon, m.dot_lat]).addTo(compare.match),
-    ];
-    const rect = $("compare-home").getBoundingClientRect();
+    compare.dots = [makePin("pin-dot").setLngLat([m.dot_lon, m.dot_lat]).addTo(compare.match)];
+    if (drawn) {
+      drawMask($("compare-home-canvas"), land, t.n, dotPixel(t));
+    } else {
+      const homeCoast = lines(badSegs, homeFrame, false), homeCoastOk = lines(okSegs, homeFrame, false);
+      const homeSquare = polygonFeature([[-h, -h], [h, -h], [h, h], [-h, h], [-h, -h]].map(([x, y]) => toLonLat(homeFrame, x, y)));
+      setCompareData(compare.home, { square: { type: "FeatureCollection", features: [homeSquare] }, coast: { type: "FeatureCollection", features: [homeCoast] }, "coast-ok": { type: "FeatureCollection", features: [homeCoastOk] } });
+      compare.dots.push(makePin("pin-dot").setLngLat([run.params.home.lon, run.params.home.lat]).addTo(compare.home));
+    }
+    setCompareData(compare.match, { square: { type: "FeatureCollection", features: [matchSquare] }, coast: { type: "FeatureCollection", features: [matchCoast] }, "coast-ok": { type: "FeatureCollection", features: [matchCoastOk] } });
+    const rect = $("compare-match").getBoundingClientRect();
     const px = Math.max(200, Math.min(rect.width, rect.height));
     const offset = Number($("compare-zoom").value);
     const side = run.params.side_km * 1000;
-    compare.home.jumpTo({ center: [run.params.center.lon, run.params.center.lat], zoom: zoomFor(run.params.center.lat, side * 1.3, px) + offset, bearing: 0, pitch: 0 });
+    if (!drawn) compare.home.jumpTo({ center: [run.params.center.lon, run.params.center.lat], zoom: zoomFor(run.params.center.lat, side * 1.3, px) + offset, bearing: 0, pitch: 0 });
     compare.match.jumpTo({ center: [m.center_lon, m.center_lat], zoom: zoomFor(m.center_lat, side * m.scale * 1.3, px) + offset, bearing: -m.theta, pitch: 0 });
     $("compare-match").classList.toggle("mirrored", !!m.flip);
     const labels = $("compare-labels").checked;
@@ -1089,12 +1240,12 @@
     const place = m.place || fmtCoords(m.dot_lat, m.dot_lon);
     $("compare-title").textContent = `#${m.rank} ${place}`;
     $("compare-meta").innerHTML = "";
-    $("compare-meta").textContent = `score ${m.score.toFixed(3)} · rotated ${m.theta > 0 ? "+" : ""}${Math.round(m.theta)}°${m.flip ? ", mirrored" : ""}, ${m.side_km.toFixed(0)} km square · ${fmtKm(haversineKm(run.params.home.lat, run.params.home.lon, m.dot_lat, m.dot_lon))} from home · dot lands at ${fmtCoords(m.dot_lat, m.dot_lon)}`;
+    $("compare-meta").textContent = `score ${m.score.toFixed(3)} · rotated ${m.theta > 0 ? "+" : ""}${Math.round(m.theta)}°${m.flip ? ", mirrored" : ""}, ${m.side_km.toFixed(0)} km square · ${run.params.home ? fmtKm(haversineKm(run.params.home.lat, run.params.home.lon, m.dot_lat, m.dot_lon)) + " from home" : "drawn coastline"} · dot lands at ${fmtCoords(m.dot_lat, m.dot_lon)}`;
     const gmap = document.createElement("a");
     gmap.href = `https://www.google.com/maps/search/?api=1&query=${m.dot_lat.toFixed(5)},${m.dot_lon.toFixed(5)}`;
     gmap.target = "_blank"; gmap.rel = "noopener"; gmap.textContent = "open in Google Maps";
     $("compare-meta").append(" · ", gmap);
-    $("compare-home-caption").textContent = `Home · ${run.params.side_km} km square`;
+    $("compare-home-caption").textContent = `${drawn ? "Your drawing" : "Home"} · ${run.params.side_km} km square`;
     $("compare-match-caption").textContent = `${place}${m.flip ? " · mirrored, labels off" : ""}`;
     $("compare-prev").disabled = compare.index === 0;
     $("compare-next").disabled = compare.index >= compare.list.length - 1;
@@ -1111,6 +1262,20 @@
   $("compare-coast").addEventListener("change", renderCompare);
   window.addEventListener("resize", () => { if ($("compare-dialog").open && compare.home) { compare.home.resize(); compare.match.resize(); renderCompare(); } });
 
+  function restoreRunInputs(run) {
+    $("side-km").value = run.params.side_km;
+    $("side-out").textContent = run.params.side_km;
+    if (run.params.home) {
+      if (state.mode !== "place") setMode("place", { silent: true });
+      if (!state.home || Math.abs(state.home.lat - run.params.home.lat) > 1e-6 || Math.abs(state.home.lon - run.params.home.lon) > 1e-6) setHome(run.params.home.lat, run.params.home.lon);
+    } else if (run.template && run.template.land) {
+      const t = { n: run.template.n, res: run.template.res, land: landFrom(run.template.land), dot: run.template.dot };
+      const n = drawGridSize();
+      const half = t.n * t.res / 2;
+      setDrawing(n, resampleGrid(t.land, t.n, n), [Math.max(0, Math.min(n - 1, Math.floor((t.dot[0] + half) / (t.n * t.res) * n))), Math.max(0, Math.min(n - 1, Math.floor((half - t.dot[1]) / (t.n * t.res) * n)))]);
+      setMode("draw");
+    }
+  }
   async function refreshRunsCount() {
     try {
       const runs = await api("/api/jobs");
@@ -1127,7 +1292,7 @@
     $("runs-empty").hidden = runs.length > 0;
     for (const r of runs) {
       const tr = document.createElement("tr");
-      const home = r.params && r.params.home ? fmtCoords(r.params.home.lat, r.params.home.lon) : "";
+      const home = r.params && r.params.home ? fmtCoords(r.params.home.lat, r.params.home.lon) : "drawn";
       const side = r.params && r.params.side_km ? `${r.params.side_km} km` : "";
       const top = r.top && r.top[0] ? `${escapeHtml(r.top[0].place || fmtCoords(r.top[0].dot_lat, r.top[0].dot_lon))} (${r.top[0].score.toFixed(3)})` : "";
       const progress = r.status === "running" && r.progress && r.progress.total ? ` ${Math.round(100 * r.progress.done / r.progress.total)}%` : "";
@@ -1161,6 +1326,23 @@
     let saved = null;
     try { saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "null"); } catch (e) {}
     const q = new URLSearchParams(location.search);
+    let savedDraw = null;
+    try { savedDraw = JSON.parse(localStorage.getItem(DRAW_KEY) || "null"); } catch (e) {}
+    if (savedDraw && savedDraw.land && savedDraw.n * savedDraw.n === savedDraw.land.length) setDrawing(savedDraw.n, landFrom(savedDraw.land), savedDraw.dot);
+    let urlDraw = null;
+    if (q.has("d")) {
+      try {
+        const [nText, packed] = q.get("d").split(".");
+        const n = Number(nText);
+        const dot = (q.get("dot") || "").split(",").map(Number);
+        if (n >= 8 && n <= 256 && packed) urlDraw = { n, land: unpackDrawing(n, packed), dot: dot.length === 2 && dot.every(isFinite) ? dot : null, side: Number(q.get("side")) || 60 };
+      } catch (e) {}
+    }
+    if (urlDraw) {
+      $("side-km").value = urlDraw.side;
+      $("side-out").textContent = $("side-km").value;
+      setDrawing(urlDraw.n, urlDraw.land, urlDraw.dot);
+    }
     if (q.has("lat") && q.has("lon") && isFinite(Number(q.get("lat"))) && isFinite(Number(q.get("lon")))) {
       saved = { home: { lat: Number(q.get("lat")), lon: Number(q.get("lon")) }, side: Number(q.get("side")) || 60, address: "" };
       if (q.has("clat") && q.has("clon")) { saved.centerMode = "custom"; saved.center = { lat: Number(q.get("clat")), lon: Number(q.get("clon")) }; }
@@ -1177,6 +1359,9 @@
       setHome(saved.home.lat, saved.home.lon, { pan: false });
       map.jumpTo({ center: [saved.home.lon, saved.home.lat], zoom: 8 });
     }
+    if (urlDraw || (!q.has("lat") && saved && saved.mode === "draw")) setMode("draw", { silent: true });
+    else if (draw.land) renderDrawing();
+    if (state.mode === "draw") schedulePreview();
     const runs = await refreshRunsCount();
     const running = runs.find((r) => r.status === "running");
     if (running) showJob(running.id);
