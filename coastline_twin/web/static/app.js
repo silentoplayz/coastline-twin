@@ -738,6 +738,7 @@
       lat_band: $("lat-band").value === "" ? null : Number($("lat-band").value),
       bbox: state.bbox,
       climate: $("climate").value,
+      vector_top: $("vector-sharpen").checked ? 20 : 0,
       exclude_km: state.mode === "draw" ? 0 : ($("exclude-km").value === "" ? null : Number($("exclude-km").value)),
       workers: $("workers").value === "" ? null : Number($("workers").value),
       label: $("label").value.trim() || null,
@@ -821,7 +822,9 @@
   function renderJobStatus(job) {
     const p = job.progress || { done: 0, total: 0 };
     const pct = p.total ? Math.round(100 * p.done / p.total) : 0;
-    if (job.status === "running") {
+    if (job.status === "running" && p.stage === "vector") {
+      setStatus("Sharpening with vector coastlines…", `${p.vector_done} of ${p.vector_total} matches re-scored at about 250 m`, 100, { cancellable: true });
+    } else if (job.status === "running") {
       const eta = p.eta != null ? `, about ${fmtDuration(p.eta)} left` : "";
       setStatus(p.total ? `Searching… ${pct}%` : "Preparing the search…",
         p.total ? `${p.done} of ${p.total} tiles, ${fmtDuration(p.elapsed)} elapsed${eta}` : "Building the template and its variants", pct, { cancellable: true });
@@ -945,7 +948,7 @@
         <div class="rank">${m.rank}</div>
         <div class="place">${escapeHtml(place)} <span class="chip ${scoreLabel(m.score)[1]}">${scoreLabel(m.score)[0]}</span></div>
         <div class="score">${m.score.toFixed(3)}</div>
-        <div class="detail">rotated ${m.theta > 0 ? "+" : ""}${Math.round(m.theta)}°${flip}, ${m.side_km.toFixed(0)} km square · ${distance}${m.climate ? ` · ${m.climate}${m.climate_name ? " " + m.climate_name : ""}` : ""} · dot at ${fmtCoords(m.dot_lat, m.dot_lon)}</div>
+        <div class="detail">rotated ${m.theta > 0 ? "+" : ""}${Math.round(m.theta)}°${flip}, ${m.side_km.toFixed(0)} km square · ${distance}${m.climate ? ` · ${m.climate}${m.climate_name ? " " + m.climate_name : ""}` : ""}${m.vector ? ` · sharpened at ${m.vector_res_m} m` : ""} · dot at ${fmtCoords(m.dot_lat, m.dot_lon)}</div>
         <div class="bars"><span>mask</span><div class="bar"><i style="width:${Math.max(0, m.mask_score) * 100}%"></i></div><span>coast</span><div class="bar"><i style="width:${Math.max(0, m.coast_score) * 100}%"></i></div></div>
         <div class="strip"><div><canvas></canvas><span>home</span></div><div><canvas></canvas><span>match</span></div><div><canvas></canvas><span>overlay</span></div></div>
         <div class="links"><a href="${osm}" target="_blank" rel="noopener">OpenStreetMap</a><a href="${gm}" target="_blank" rel="noopener">Google Maps</a><button type="button" class="ghost small" data-why="${m.rank}">Why?</button><button type="button" class="small" data-compare="${m.rank}">Compare</button></div>`;

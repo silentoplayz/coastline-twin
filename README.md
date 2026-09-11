@@ -70,7 +70,14 @@ Layers.*
    matched size. At this stage the coast term becomes half band correlation
    and half continuity, which credits long unbroken stretches of matched
    shoreline and discounts scattered pixels.
-6. **Results.** Peaks are deduplicated, the home neighborhood is excluded, and
+6. **Vector sharpening.** The top twenty are re-scored against shorelines
+   rasterized from OpenFreeMap's vector tiles at about 250 m, roughly four
+   times the detail of the land mask. Water polygons of every class count as
+   water, so tidal creeks and rivers appear that the 1 km mask never saw.
+   Both engines fetch a few zoom-9 tiles per match, about 10 MB for a run,
+   and fall back to the 1 km scores if the tiles can't be reached. Turn it
+   off under Advanced, or with `--vector-top 0`.
+7. **Results.** Peaks are deduplicated, the home neighborhood is excluded, and
    the top matches are written as JSON, GeoJSON, a contact sheet PNG, and an
    HTML report with map links. The dot is carried through the same rotation,
    mirror, and scale, so its landing point is reported per match.
@@ -128,7 +135,8 @@ What the page does:
   where you can reopen or delete it. A run that is still going when you reload
   the page reattaches automatically.
 
-Climate classes come from the Köppen-Geiger map by Rubel, Brugger, Haslinger
+Vector sharpening reads water polygons from OpenFreeMap tiles, © OpenMapTiles,
+data © OpenStreetMap contributors. Climate classes come from the Köppen-Geiger map by Rubel, Brugger, Haslinger
 and Auer (2017) at the University of Vienna, shipped at 5 arc-minutes via the
 kgcpy package. Geocoding goes to Nominatim first and falls back to Photon, both
 OpenStreetMap based, both free for light personal use. The map is MapLibre GL JS on
@@ -160,6 +168,7 @@ Useful flags:
 | `--lat-band 8` | Only accept matches within 8 degrees of your absolute latitude |
 | `--same-hemisphere` | Keep the seasons the same |
 | `--climate same` | Only Köppen-Geiger classes equal to home's; also `group`, or letters like `C,D` |
+| `--vector-top 0` | Skip the vector sharpening stage, or change how many matches it re-scores |
 | `--bbox LATMIN LONMIN LATMAX LONMAX` | Restrict the search to one region |
 | `--detail-weight 0.7` | Lean harder on coastline detail than on the land mask |
 | `--band-px 1` | Count only pixels within 1 km of the shoreline as coast, stricter than the default 2 |

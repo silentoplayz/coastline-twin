@@ -43,6 +43,7 @@ class SearchConfig:
     rot_max: float = 45.0
     climate: str = ""
     home_climate: Optional[str] = None
+    vector_top: int = 20
     step_deg: float = 9.0
     lat_limit: float = 81.0
 
@@ -452,9 +453,10 @@ def process_tile(tile):
     return out
 
 
-def merge(candidates, cfg):
+def merge(candidates, cfg, top=None):
     candidates = sorted(candidates, key=lambda c: c["score"], reverse=True)
     kept = []
+    limit = top or cfg.top
     for cand in candidates:
         far = all(
             haversine_km(cand["center_lat"], cand["center_lon"], k["center_lat"], k["center_lon"]) >= cfg.min_sep_km
@@ -462,7 +464,7 @@ def merge(candidates, cfg):
         )
         if far:
             kept.append(cand)
-        if len(kept) >= cfg.top:
+        if len(kept) >= limit:
             break
     for rank, cand in enumerate(kept, start=1):
         cand["rank"] = rank
@@ -488,4 +490,4 @@ def run_search(template, variants, cfg, progress=None):
                 candidates.extend(fut.result())
                 if progress:
                     progress(1)
-    return merge(candidates, cfg), len(tiles), len(candidates)
+    return merge(candidates, cfg, top=max(cfg.top, cfg.vector_top)), len(tiles), len(candidates)

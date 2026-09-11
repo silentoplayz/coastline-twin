@@ -736,6 +736,7 @@
       lat_band: $("lat-band").value === "" ? null : Number($("lat-band").value),
       bbox: state.bbox, top: Number($("top").value) || 15,
       climate: $("climate").value, home_climate: drawn ? null : state.homeClimate,
+      vector_top: $("vector-sharpen").checked ? 20 : 0,
       fine_res, coarse_res, P, N, step_deg: stepDeg, lat_limit: 81,
       quality: thorough ? "thorough" : "fast",
     };
@@ -890,12 +891,12 @@
     const a = Math.sin((p2 - p1) / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin((lon2 - lon1) * d / 2) ** 2;
     return 2 * 6371.0088 * Math.asin(Math.sqrt(a));
   }
-  function merge(cands, p) {
+  function merge(cands, p, limit) {
     cands.sort((a, b) => b.score - a.score);
     const kept = [];
     for (const c of cands) {
       if (kept.every((k) => haversineKm(c.center_lat, c.center_lon, k.center_lat, k.center_lon) >= p.min_sep_km)) kept.push(c);
-      if (kept.length >= p.top) break;
+      if (kept.length >= (limit || p.top)) break;
     }
     kept.forEach((m, i) => { m.rank = i + 1; });
     return kept;
@@ -956,7 +957,23 @@
       };
       await Promise.all(pool.workers.map((_, i) => runWorker(i)));
       if (state.cancelled) return;
-      const matches = merge(all, p);
+      let matches = merge(all, p, Math.max(p.top, p.vector_top || 0));
+      if (p.vector_top > 0 && matches.length) {
+        const targets = matches.slice(0, p.vector_top);
+        let done = 0, failed = 0;
+        setStatus("Sharpening with vector coastlines…", `0 of ${targets.length} matches re-scored at about 250 m`, 100, { cancellable: true });
+        const results = await Promise.all(targets.map((m, i) => pool.call(i % pool.workers.length, { type: "vector", match: m }).then((r) => r.match).catch(() => { failed++; return m; }).then((r) => {
+          done++;
+          setStatus("Sharpening with vector coastlines…", `${done} of ${targets.length} matches re-scored at about 250 m`, 100, { cancellable: true });
+          return r;
+        })));
+        if (state.cancelled) return;
+        if (failed) toast(failed === targets.length ? "Vector sharpening skipped: coastline tiles could not be fetched" : `${failed} matches kept their 1 km scores`);
+        matches = results.concat(matches.slice(p.vector_top));
+        matches.sort((a, b) => b.score - a.score);
+        matches = matches.slice(0, p.top);
+        matches.forEach((m, i) => { m.rank = i + 1; });
+      }
       await ensureClimateLegend();
       nameClimate(matches);
       setStatus("Naming places…", `${matches.length} matches, looking up the nearest places`, 100, { cancellable: false });
@@ -969,7 +986,7 @@
       const run = {
         id: `${Date.now()}`, label, started: Date.now(), seconds, tiles: tiles.length, raw: all.length,
         params: { home: p.home, center: p.center, custom: !!p.custom, home_name: homePlace, side_km: p.side_km, scales: p.scales, thetas: p.thetas, flips: p.flips,
-          detail_weight: p.detail_weight, band_px: p.band_px, climate: p.climate, same_hemisphere: p.same_hemisphere, lat_band: p.lat_band, bbox: p.bbox, quality: p.quality, min_score: p.min_score },
+          detail_weight: p.detail_weight, band_px: p.band_px, climate: p.climate, vector_top: p.vector_top, same_hemisphere: p.same_hemisphere, lat_band: p.lat_band, bbox: p.bbox, quality: p.quality, min_score: p.min_score },
         template: { n: t.n, res: t.res, land: t.land.join(""), dot: t.dot },
         home_climate: p.home_climate,
         matches: matches.map((m) => ({ ...m, window: m.window.join("") })),
@@ -1094,7 +1111,7 @@
         <div class="rank">${m.rank}</div>
         <div class="place">${escapeHtml(place)} <span class="chip ${scoreLabel(m.score)[1]}">${scoreLabel(m.score)[0]}</span></div>
         <div class="score">${m.score.toFixed(3)}</div>
-        <div class="detail">rotated ${m.theta > 0 ? "+" : ""}${Math.round(m.theta)}°${flip}, ${m.side_km.toFixed(0)} km square · ${distance}${m.climate ? ` · ${m.climate}${m.climate_name ? " " + m.climate_name : ""}` : ""} · dot at ${fmtCoords(m.dot_lat, m.dot_lon)}</div>
+        <div class="detail">rotated ${m.theta > 0 ? "+" : ""}${Math.round(m.theta)}°${flip}, ${m.side_km.toFixed(0)} km square · ${distance}${m.climate ? ` · ${m.climate}${m.climate_name ? " " + m.climate_name : ""}` : ""}${m.vector ? ` · sharpened at ${m.vector_res_m} m` : ""} · dot at ${fmtCoords(m.dot_lat, m.dot_lon)}</div>
         <div class="bars"><span>mask</span><div class="bar"><i style="width:${Math.max(0, m.mask_score) * 100}%"></i></div><span>coast</span><div class="bar"><i style="width:${Math.max(0, m.coast_score) * 100}%"></i></div></div>
         <div class="strip"><div><canvas></canvas><span>home</span></div><div><canvas></canvas><span>match</span></div><div><canvas></canvas><span>overlay</span></div></div>
         <div class="links"><a href="${osm}" target="_blank" rel="noopener">OpenStreetMap</a><a href="${gm}" target="_blank" rel="noopener">Google Maps</a><button type="button" class="ghost small" data-why="${m.rank}">Why?</button><button type="button" class="small" data-compare="${m.rank}">Compare</button></div>`;

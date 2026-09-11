@@ -82,6 +82,7 @@ class JobRequest(PreviewRequest):
     workers: Optional[int] = None
     label: Optional[str] = None
     home_name: Optional[str] = None
+    vector_top: int = Field(default=20, ge=0, le=60)
 
 
 def _throttled_get(url, params, timeout=10):
@@ -216,6 +217,7 @@ def _cli_args(req: PreviewRequest, name: str, out: Path, dry_run: bool):
         args.append("--same-hemisphere")
     if job.climate:
         args += ["--climate", job.climate]
+    args += ["--vector-top", str(job.vector_top)]
     if job.bbox:
         if len(job.bbox) != 4:
             raise HTTPException(422, "bbox needs four numbers")

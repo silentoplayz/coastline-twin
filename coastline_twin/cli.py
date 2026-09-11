@@ -37,6 +37,7 @@ def build_parser():
     p.add_argument("--lat-band", type=float, help="only accept matches within this many degrees of your absolute latitude")
     p.add_argument("--same-hemisphere", action="store_true", help="only accept matches in your hemisphere")
     p.add_argument("--climate", default="", help="same, group, or Köppen group letters like C,D; empty for any")
+    p.add_argument("--vector-top", type=int, default=20, help="re-score this many top matches against OpenFreeMap vector coastlines at about 250 m; 0 disables")
     p.add_argument("--workers", type=int, help="processes, default min(cpu-2, 12)")
     p.add_argument("--out", default="results", help="output root")
     p.add_argument("--name", help="run name, default timestamp")
@@ -96,6 +97,7 @@ def main(argv=None):
         rot_max=args.rot_max,
         climate=args.climate,
         home_climate=climate_at(home[0], home[1]) if home else None,
+        vector_top=max(0, args.vector_top),
     )
 
     run_name = args.name or time.strftime("%Y%m%d-%H%M%S")
@@ -159,6 +161,23 @@ def main(argv=None):
     progress_path.write_text(json.dumps({"done": 0, "total": n_tiles, "elapsed": 0.0, "eta": None}))
     matches, n_tiles, n_candidates = run_search(template, variants, cfg, progress=advance)
     bar.close()
+    vector_done = 0
+    if cfg.vector_top > 0 and matches:
+        from .vector import vector_stage
+
+        cache_dir = Path(args.out) / ".tilecache"
+        try:
+            def vprogress(k, total):
+                progress_path.write_text(json.dumps({"done": n_tiles, "total": n_tiles, "elapsed": round(time.time() - t0, 1), "eta": None, "stage": "vector", "vector_done": k, "vector_total": total}))
+
+            matches = vector_stage(template, cfg, matches, cache_dir, cfg.vector_top, progress=vprogress)
+            vector_done = min(cfg.vector_top, len(matches))
+            print(f"Sharpened the top {vector_done} with vector coastlines.")
+        except Exception as exc:
+            print(f"warning: vector sharpening skipped ({exc})")
+    matches = matches[: cfg.top]
+    for rank, m in enumerate(matches, start=1):
+        m["rank"] = rank
     elapsed = time.time() - t0
 
     matches = report.reverse_geocode(matches)
@@ -188,6 +207,7 @@ def main(argv=None):
             "climate": cfg.climate,
         },
         "home_climate": cfg.home_climate,
+        "vector_top": vector_done,
     }
     report.write_json(template, matches, meta, out_dir / "matches.json")
     report.write_geojson(template, matches, out_dir / "matches.geojson")

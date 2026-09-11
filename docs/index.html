@@ -179,6 +179,7 @@
 
       <details class="panel">
         <summary>Advanced</summary>
+        <label class="check"><input type="checkbox" id="vector-sharpen" checked> Sharpen the top 20 with vector coastlines <span class="muted small">(OpenFreeMap tiles, about 250 m)</span></label>
         <label class="field">Minimum score <input type="number" id="min-score" min="0" max="1" step="0.05" value="0.5"></label>
         <label class="field">Ignore matches within <span class="muted small">km of home, blank for twice the side</span>
           <input type="number" id="exclude-km" min="0" step="10" placeholder="auto">
@@ -199,7 +200,7 @@
         <progress id="status-progress" max="100" value="0"></progress>
         <p id="status-text" class="muted small"></p>
       </section>
-      <p class="notice">Land mask: GLOBE 30 arc-second via global-land-mask. Climate zones: Köppen-Geiger map by Rubel et al. (2017), University of Vienna, via kgcpy. Geocoding: Photon and Nominatim (OpenStreetMap). Map: MapLibre GL with OpenFreeMap vector tiles, OpenTopoMap, Esri imagery, and Mapzen elevation.</p>
+      <p class="notice">Land mask: GLOBE 30 arc-second via global-land-mask. Climate zones: Köppen-Geiger map by Rubel et al. (2017), University of Vienna, via kgcpy. Geocoding: Photon and Nominatim (OpenStreetMap). Map: MapLibre GL with OpenFreeMap vector tiles, OpenTopoMap, Esri imagery, and Mapzen elevation. Vector sharpening reads OpenFreeMap water polygons (© OpenMapTiles, data © OpenStreetMap contributors).</p>
     </form>
   </aside>
 

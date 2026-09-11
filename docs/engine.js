@@ -428,6 +428,7 @@ async function prepare(p) {
   const fz = zeroMean(fineVals, null, fine.n);
   const fb = zeroMean(Float64Array.from(fineBand), null, fine.n);
   const fineCoast = coastBand(fine.land, null, fine.n, 0);
+  VT = null;
   CTX = { p, fine, coarse, variants, fineZ: fz, fineB: fb, fineBand, fineCoast, runFull: Math.max(8, Math.round(fine.n / 2)) };
   return { fine, coarse, variants };
 }
@@ -667,6 +668,311 @@ async function windowFor(match) {
   return Array.from(bin);
 }
 
+
+const VTILES = new Map();
+let TILE_TEMPLATE = null;
+let VT = null;
+
+async function tileTemplate() {
+  if (!TILE_TEMPLATE) {
+    const j = await (await fetch("https://tiles.openfreemap.org/planet")).json();
+    TILE_TEMPLATE = j.tiles[0];
+  }
+  return TILE_TEMPLATE;
+}
+
+function readVarint(bytes, pos) {
+  let result = 0, shift = 0;
+  while (true) {
+    const b = bytes[pos++];
+    result += (b & 0x7f) * Math.pow(2, shift);
+    if (!(b & 0x80)) return [result, pos];
+    shift += 7;
+  }
+}
+
+function forEachField(bytes, start, end, cb) {
+  let pos = start;
+  while (pos < end) {
+    let key;
+    [key, pos] = readVarint(bytes, pos);
+    const field = Math.floor(key / 8), wtype = key & 7;
+    if (wtype === 0) { let v; [v, pos] = readVarint(bytes, pos); cb(field, v, null); }
+    else if (wtype === 2) { let ln; [ln, pos] = readVarint(bytes, pos); cb(field, null, bytes.subarray(pos, pos + ln)); pos += ln; }
+    else if (wtype === 5) pos += 4;
+    else if (wtype === 1) pos += 8;
+    else throw new Error("bad wire type");
+  }
+}
+
+function zigzag(v) { return (v % 2 === 1) ? -(v + 1) / 2 : v / 2; }
+
+function decodeRings(geom) {
+  const cmds = [];
+  let pos = 0;
+  while (pos < geom.length) { let v; [v, pos] = readVarint(geom, pos); cmds.push(v); }
+  const rings = [];
+  let ring = null, x = 0, y = 0, i = 0;
+  while (i < cmds.length) {
+    const cmd = cmds[i] & 7, count = Math.floor(cmds[i] / 8);
+    i++;
+    if (cmd === 1) {
+      for (let k = 0; k < count; k++) { x += zigzag(cmds[i]); y += zigzag(cmds[i + 1]); i += 2; ring = [x, y]; rings.push(ring); }
+    } else if (cmd === 2) {
+      for (let k = 0; k < count; k++) { x += zigzag(cmds[i]); y += zigzag(cmds[i + 1]); i += 2; ring.push(x, y); }
+    }
+  }
+  return rings;
+}
+
+function waterRings(bytes) {
+  let extent = 4096;
+  const rings = [];
+  forEachField(bytes, 0, bytes.length, (field, _, layer) => {
+    if (field !== 3 || !layer) return;
+    let name = null, ext = 4096;
+    const feats = [];
+    forEachField(layer, 0, layer.length, (f, v, sub) => {
+      if (f === 1) name = new TextDecoder().decode(sub);
+      else if (f === 5) ext = v;
+      else if (f === 2) feats.push(sub);
+    });
+    if (name !== "water") return;
+    extent = ext;
+    for (const fb of feats) {
+      let gtype = 0, geom = null;
+      forEachField(fb, 0, fb.length, (f, v, sub) => { if (f === 3) gtype = v; else if (f === 4) geom = sub; });
+      if (gtype === 3 && geom) for (const r of decodeRings(geom)) rings.push(r);
+    }
+  });
+  return { extent, rings };
+}
+
+async function fetchTile(z, x, y) {
+  const key = `${z}/${x}/${y}`;
+  if (VTILES.has(key)) return VTILES.get(key);
+  const p = (async () => {
+    const url = (await tileTemplate()).replace("{z}", z).replace("{x}", x).replace("{y}", y);
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`tile ${key} ${res.status}`);
+    return waterRings(new Uint8Array(await res.arrayBuffer()));
+  })();
+  VTILES.set(key, p);
+  return p;
+}
+
+function mercTile(lat, lon, z) {
+  const n = Math.pow(2, z);
+  const latr = Math.max(-85.05, Math.min(85.05, lat)) * D2R;
+  return [(lon + 180) / 360 * n, (1 - Math.log(Math.tan(latr) + 1 / Math.cos(latr)) / Math.PI) / 2 * n];
+}
+
+function tileToLatLon(tx, ty, z) {
+  const n = Math.pow(2, z);
+  return [Math.atan(Math.sinh(Math.PI * (1 - 2 * ty / n))) * R2D, tx / n * 360 - 180];
+}
+
+function fillRingsEvenOdd(rings, n, target, own) {
+  const rows = new Array(n);
+  for (const ring of rings) {
+    const m = ring.length / 2;
+    if (m < 3) continue;
+    for (let i = 0; i < m; i++) {
+      const x0 = ring[2 * i], y0 = ring[2 * i + 1];
+      const j = (i + 1) % m;
+      const x1 = ring[2 * j], y1 = ring[2 * j + 1];
+      if (y0 === y1) continue;
+      const ymin = Math.min(y0, y1), ymax = Math.max(y0, y1);
+      const r0 = Math.max(0, Math.ceil(ymin - 0.5)), r1 = Math.min(n - 1, Math.ceil(ymax - 0.5) - 1);
+      for (let r = r0; r <= r1; r++) {
+        const yc = r + 0.5;
+        const x = x0 + (yc - y0) * (x1 - x0) / (y1 - y0);
+        (rows[r] || (rows[r] = [])).push(x);
+      }
+    }
+  }
+  for (let r = 0; r < n; r++) {
+    const xs = rows[r];
+    if (!xs) continue;
+    xs.sort((a, b) => a - b);
+    for (let i = 0; i + 1 < xs.length; i += 2) {
+      const c0 = Math.max(0, Math.ceil(xs[i] - 0.5)), c1 = Math.min(n, Math.ceil(xs[i + 1] - 0.5));
+      for (let c = c0; c < c1; c++) if (own[r * n + c]) target[r * n + c] ^= 1;
+    }
+  }
+}
+
+async function landGrid(frame, halfM, resM) {
+  const n = Math.round(2 * halfM / resM);
+  const half = n * resM / 2;
+  const zoom = Math.min(12, Math.max(6, Math.round(Math.log2(40075016.686 * Math.cos(frame.lat0 * D2R) / ((2 * halfM) / 2.5)))));
+  const tx = new Int32Array(n * n), ty = new Int32Array(n * n);
+  const tiles = new Map();
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
+    const ll = toLatLon(frame, -half + (c + 0.5) * resM, half - (r + 0.5) * resM);
+    const [mx, my] = mercTile(ll[0], ll[1], zoom);
+    const k = r * n + c;
+    tx[k] = Math.floor(mx); ty[k] = Math.floor(my);
+    tiles.set(`${tx[k]}/${ty[k]}`, [tx[k], ty[k]]);
+  }
+  const list = [...tiles.values()];
+  const blobs = await Promise.all(list.map(([x, y]) => fetchTile(zoom, x, y)));
+  const water = new Uint8Array(n * n);
+  const own = new Uint8Array(n * n);
+  list.forEach(([x0, y0], idx) => {
+    own.fill(0);
+    let any = false;
+    for (let k = 0; k < n * n; k++) if (tx[k] === x0 && ty[k] === y0) { own[k] = 1; any = true; }
+    if (!any) return;
+    const { extent, rings } = blobs[idx];
+    const pixelRings = [];
+    for (const ring of rings) {
+      const out = new Array(ring.length);
+      let minx = Infinity, maxx = -Infinity, miny = Infinity, maxy = -Infinity;
+      for (let i = 0; i < ring.length; i += 2) {
+        const [la, lo] = tileToLatLon(x0 + ring[i] / extent, y0 + ring[i + 1] / extent, zoom);
+        const [rx, ry] = toXY(frame, la, lo);
+        const px = (rx + half) / resM, py = (half - ry) / resM;
+        out[i] = px; out[i + 1] = py;
+        if (px < minx) minx = px; if (px > maxx) maxx = px; if (py < miny) miny = py; if (py > maxy) maxy = py;
+      }
+      if (maxx < -1 || minx > n + 1 || maxy < -1 || miny > n + 1) continue;
+      pixelRings.push(out);
+    }
+    fillRingsEvenOdd(pixelRings, n, water, own);
+  });
+  const land = new Uint8Array(n * n);
+  for (let k = 0; k < n * n; k++) land[k] = water[k] ? 0 : 1;
+  return { land, n, zoom };
+}
+
+function dilateSquare(binary, n, r) {
+  if (r <= 0) return Uint8Array.from(binary);
+  const tmp = new Uint8Array(n * n), out = new Uint8Array(n * n);
+  for (let row = 0; row < n; row++) for (let c = 0; c < n; c++) {
+    let v = 0;
+    for (let d = -r; d <= r && !v; d++) { const cc = c + d; if (cc >= 0 && cc < n && binary[row * n + cc]) v = 1; }
+    tmp[row * n + c] = v;
+  }
+  for (let row = 0; row < n; row++) for (let c = 0; c < n; c++) {
+    let v = 0;
+    for (let d = -r; d <= r && !v; d++) { const rr = row + d; if (rr >= 0 && rr < n && tmp[rr * n + c]) v = 1; }
+    out[row * n + c] = v;
+  }
+  return out;
+}
+
+function edgePixels(land, n) {
+  const coast = new Uint8Array(n * n);
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
+    const k = r * n + c;
+    if (r + 1 < n && land[k] !== land[k + n]) { coast[k] = 1; coast[k + n] = 1; }
+    if (c + 1 < n && land[k] !== land[k + 1]) { coast[k] = 1; coast[k + 1] = 1; }
+  }
+  return coast;
+}
+
+async function vectorTemplate(p) {
+  if (VT) return VT;
+  const fine = CTX.fine;
+  let resM = Math.max(150, Math.min(500, p.side_m / 400));
+  const n = Math.round(p.side_m / resM);
+  resM = p.side_m / n;
+  const halfM = p.side_m / 2;
+  let land;
+  if (p.custom) {
+    land = new Uint8Array(n * n);
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) land[r * n + c] = fine.landXY(-halfM + (c + 0.5) * resM, halfM - (r + 0.5) * resM);
+  } else {
+    land = (await landGrid(makeFrame(p.center.lat, p.center.lon), halfM, resM)).land;
+  }
+  const bandPx = Math.max(1, Math.round(p.band_px * p.fine_res / resM));
+  const vals = new Float64Array(n * n);
+  for (let k = 0; k < n * n; k++) vals[k] = land[k] ? 1 : -1;
+  const vz = zeroMean(vals, null, n);
+  const coast = edgePixels(land, n);
+  const band = dilateSquare(coast, n, bandPx);
+  const bz = zeroMean(Float64Array.from(band), null, n);
+  const px = new Float64Array(n), py = new Float64Array(n);
+  for (let i = 0; i < n; i++) { px[i] = -halfM + (i + 0.5) * resM; py[i] = halfM - (i + 0.5) * resM; }
+  VT = { n, resM, halfM, bandPx, runFull: Math.max(8, n >> 1), land, vz, coast, bz, px, py, dot: fine.dot };
+  return VT;
+}
+
+function scoreVector(vt, win, p) {
+  const n = vt.n;
+  const vals = new Float64Array(n * n);
+  for (let k = 0; k < n * n; k++) vals[k] = win[k] ? 1 : -1;
+  const wz = zeroMean(vals, null, n);
+  const band = dilateSquare(edgePixels(win, n), n, vt.bandPx);
+  const bz = zeroMean(Float64Array.from(band), null, n);
+  let mask = 0, ncc = 0;
+  if (wz.norm >= p.variance_floor * vt.vz.norm && wz.norm > 0) {
+    let num = 0;
+    for (let k = 0; k < n * n; k++) num += wz.values[k] * vt.vz.values[k];
+    mask = Math.max(-1, Math.min(1, num / (wz.norm * vt.vz.norm)));
+  }
+  if (vt.bz.norm > 0 && bz.norm >= p.variance_floor * vt.bz.norm && bz.norm > 0) {
+    let num = 0;
+    for (let k = 0; k < n * n; k++) num += bz.values[k] * vt.bz.values[k];
+    ncc = Math.max(-1, Math.min(1, num / (bz.norm * vt.bz.norm)));
+  }
+  const runs = continuity(vt.coast, band, n, vt.runFull);
+  const coast = 0.5 * Math.max(0, ncc) + 0.5 * runs.continuity;
+  return { score: (1 - p.detail_weight) * mask + p.detail_weight * coast, mask, coast, ncc, continuity: runs.continuity, longest: runs.longest };
+}
+
+async function refineVector(match) {
+  const p = CTX.p;
+  const vt = await vectorTemplate(p);
+  const frame = makeFrame(match.center_lat, match.center_lon);
+  const scale = match.scale;
+  const ext = footprintExtent(vt.halfM, 45, scale) + 4 * vt.resM;
+  const { land: grid, n: g, zoom } = await landGrid(frame, ext, vt.resM);
+  const ghalf = g * vt.resM / 2;
+  const n = vt.n;
+  const window = (theta, dx, dy) => {
+    const c = Math.cos(theta * D2R), s = Math.sin(theta * D2R);
+    const out = new Uint8Array(n * n);
+    for (let r = 0; r < n; r++) for (let col = 0; col < n; col++) {
+      let px = vt.px[col], py = vt.py[r];
+      if (match.flip) px = -px;
+      const qx = scale * (c * px - s * py) + dx, qy = scale * (s * px + c * py) + dy;
+      let gc = Math.floor((qx + ghalf) / vt.resM), gr = Math.floor((ghalf - qy) / vt.resM);
+      if (gc < 0) gc = 0; else if (gc >= g) gc = g - 1;
+      if (gr < 0) gr = 0; else if (gr >= g) gr = g - 1;
+      out[r * n + col] = grid[gr * g + gc];
+    }
+    return out;
+  };
+  let best = null;
+  const step = vt.resM;
+  const evaluate = (theta, dx, dy) => {
+    const sc = scoreVector(vt, window(theta, dx, dy), p);
+    if (!best || sc.score > best.score) best = { ...sc, theta, dx, dy };
+  };
+  for (const theta of [match.theta - 2, match.theta, match.theta + 2]) for (const dy of [-2 * step, 0, 2 * step]) for (const dx of [-2 * step, 0, 2 * step]) evaluate(theta, dx, dy);
+  const b0 = { ...best };
+  for (const dy of [-step, 0, step]) for (const dx of [-step, 0, step]) if (dx || dy) evaluate(b0.theta, b0.dx + dx, b0.dy + dy);
+  const [clat, clon] = toLatLon(frame, best.dx, best.dy);
+  const theta = ((best.theta + 180) % 360 + 360) % 360 - 180;
+  const [qx, qy] = forward(vt.dot[0], vt.dot[1], theta, match.flip, scale);
+  const [dlat, dlon] = toLatLon(frame, qx + best.dx, qy + best.dy);
+  const h = vt.halfM;
+  const square = [[-h, -h], [h, -h], [h, h], [-h, h]].map(([x, y]) => {
+    const [fx, fy] = forward(x, y, theta, match.flip, scale);
+    const [la, lo] = toLatLon(frame, fx + best.dx, fy + best.dy);
+    return [lo, la];
+  });
+  square.push(square[0]);
+  return {
+    ...match, score: best.score, mask_score: best.mask, coast_score: best.coast, coast_ncc: best.ncc, continuity: best.continuity,
+    longest_km: Math.round(best.longest / 2 * vt.resM / 100) / 10,
+    center_lat: clat, center_lon: clon, dot_lat: dlat, dot_lon: dlon, theta: Math.round(theta * 10) / 10, square,
+    vector: true, vector_res_m: Math.round(vt.resM), vector_zoom: zoom, km_score: match.score,
+  };
+}
+
 self.onmessage = async (ev) => {
   const msg = ev.data;
   try {
@@ -719,6 +1025,9 @@ self.onmessage = async (ev) => {
       await ensureRegion(...regionOf(frame, 100000));
       const out = { points: msg.points.map(([la, lo]) => [la, lo, landAt(la, lo)]), proj: msg.offsets.map(([x, y]) => [x, y, ...toLatLon(frame, x, y)]), back: msg.offsets.map(([x, y]) => { const ll = toLatLon(frame, x, y); return toXY(frame, ll[0], ll[1]); }) };
       self.postMessage({ id: msg.id, ok: true, ...out });
+    } else if (msg.type === "vector") {
+      const out = await refineVector(msg.match);
+      self.postMessage({ id: msg.id, ok: true, match: out });
     } else if (msg.type === "window") {
       self.postMessage({ id: msg.id, ok: true, window: await windowFor(msg.match) });
     }
