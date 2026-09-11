@@ -8,7 +8,7 @@ import numpy as np
 
 from tqdm import tqdm
 
-from .search import SearchConfig, climate_at, climate_name, make_tiles, merge, run_search, tile_may_contain
+from .search import SearchConfig, climate_at, climate_name, make_tiles, merge, run_search, tile_may_contain, top_share
 from .template import Template, rotation_list
 
 
@@ -169,7 +169,7 @@ def main(argv=None):
         write_progress()
 
     progress_path.write_text(json.dumps({"done": 0, "total": n_tiles, "elapsed": 0.0, "eta": None, "interim": []}))
-    matches, n_tiles, n_candidates = run_search(template, variants, cfg, progress=advance, on_candidates=leaders)
+    matches, n_tiles, n_candidates, scored = run_search(template, variants, cfg, progress=advance, on_candidates=leaders)
     bar.close()
     vector_done = 0
     if cfg.vector_top > 0 and matches:
@@ -188,6 +188,7 @@ def main(argv=None):
     matches = matches[: cfg.top]
     for rank, m in enumerate(matches, start=1):
         m["rank"] = rank
+        m["top_pct"] = top_share(scored, m["coarse"])
     elapsed = time.time() - t0
 
     matches = report.reverse_geocode(matches)
@@ -203,6 +204,7 @@ def main(argv=None):
         "variants": n_variants,
         "tiles": n_tiles,
         "candidates": n_candidates,
+        "scored": scored,
         "seconds": round(elapsed, 1),
         "stats": stats,
         "detail_weight": cfg.detail_weight,
@@ -224,7 +226,7 @@ def main(argv=None):
     report.write_geojson(template, matches, out_dir / "matches.geojson")
     report.render_sheet(template, matches, out_dir / "matches.png")
     report.write_html(template, matches, meta, out_dir / "report.html", "matches.png", "template.png")
-    print(f"Searched {n_tiles} tiles in {elapsed:.0f} s, {n_candidates} raw peaks.")
+    print(f"Searched {n_tiles} tiles in {elapsed:.0f} s, {n_candidates} raw peaks, {scored['n']:,} placements scored.")
     report.print_table(matches)
     print(f"Report: {out_dir / 'report.html'}")
     return 0

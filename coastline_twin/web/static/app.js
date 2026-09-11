@@ -306,6 +306,27 @@
     if (adjusted >= 0.6) return ["outline match", "chip-fair"];
     return ["loose", "chip-weak"];
   }
+  const HIST_BINS = 400, HIST_STEP = 2 / HIST_BINS;
+  function topShare(run, m) {
+    const scored = run && run.scored;
+    if (!scored || !scored.n || typeof m.coarse !== "number") return null;
+    const pos = (m.coarse + 1) / HIST_STEP;
+    const b = Math.max(0, Math.min(HIST_BINS - 1, Math.floor(pos)));
+    let above = scored.hist[b] * Math.max(0, Math.min(1, b + 1 - pos));
+    for (let i = b + 1; i < HIST_BINS; i++) above += scored.hist[i];
+    return 100 * Math.min(scored.n, above + 1) / scored.n;
+  }
+  function fmtTop(pct) {
+    if (pct == null) return "";
+    if (pct >= 10) return `top ${Math.round(pct)}%`;
+    if (pct >= 1) return `top ${pct.toFixed(1)}%`;
+    if (pct >= 0.01) return `top ${pct.toFixed(2)}%`;
+    return "top <0.01%";
+  }
+  function topText(run, m) {
+    const pct = topShare(run, m);
+    return pct == null ? "" : `${fmtTop(pct)} of ${run.scored.n.toLocaleString()} placements`;
+  }
   function labelShift(run) {
     const deltas = (run.matches || []).filter((m) => m.vector && typeof m.km_score === "number").map((m) => m.score - m.km_score).sort((a, b) => a - b);
     if (deltas.length < 3) return 0;
@@ -894,6 +915,7 @@
       id: job.id, label: job.label || job.id, started: (job.started || 0) * 1000, seconds: meta.seconds, tiles: meta.tiles,
       params: { home, center, custom: !home, home_name: job.params && job.params.home_name, side_km: meta.side_km || job.params.side_km, band_px: meta.band_px, hemisphere_flip: meta.hemisphere_flip, climate: filters.climate, same_hemisphere: filters.same_hemisphere, lat_band: filters.lat_band, bbox: filters.bbox },
       home_climate: meta.home_climate,
+      scored: meta.scored || null,
       template: t.land ? { n: t.n, res: t.res_m, land: t.land, dot: t.dot_xy_m } : null,
       matches: job.matches || [],
       files: job.files || null,
@@ -959,6 +981,7 @@
     if (run.params.lat_band != null) bits.push(`±${run.params.lat_band}° latitude`);
     if (run.params.hemisphere_flip) bits.push("north–south mirrors");
     if (run.params.bbox) bits.push("region limited");
+    if (run.scored && run.scored.n) bits.push(`${run.scored.n.toLocaleString()} placements scored`);
     if (run.params.climate) bits.push(run.params.climate === "same" ? `climate ${run.home_climate || "same"}` : run.params.climate === "group" ? `climate group ${(run.home_climate || "?")[0]}` : `climate ${run.params.climate}`);
     $("results-meta").textContent = bits.join(" · ");
     const t = run.template ? { n: run.template.n, res: run.template.res, land: landFrom(run.template.land), dot: run.template.dot } : { n: 0, res: 1, land: null, dot: [0, 0] };
@@ -999,9 +1022,9 @@
       li.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target === li) selectMatch(m.rank, true); });
       li.innerHTML = `
         <div class="rank">${m.rank}</div>
-        <div class="place">${escapeHtml(place)} <span class="chip ${scoreLabel(m.score, run)[1]}">${scoreLabel(m.score, run)[0]}</span></div>
+        <div class="place">${escapeHtml(place)} <span class="chip ${scoreLabel(m.score, run)[1]}"${topShare(run, m) != null ? ` title="${topText(run, m)} in this run"` : ""}>${scoreLabel(m.score, run)[0]}</span></div>
         <div class="score">${m.score.toFixed(3)}</div>
-        <div class="detail">rotated ${thetaOf(m) > 0 ? "+" : ""}${Math.round(thetaOf(m))}°${flip}, ${m.side_km.toFixed(0)} km square · ${distance}${m.climate ? ` · ${m.climate}${m.climate_name ? " " + m.climate_name : ""}` : ""}${m.vector ? ` · sharpened at ${m.vector_res_m} m` : ""} · dot at ${fmtCoords(m.dot_lat, m.dot_lon)}</div>
+        <div class="detail">${topShare(run, m) != null ? `${topText(run, m)} · ` : ""}rotated ${thetaOf(m) > 0 ? "+" : ""}${Math.round(thetaOf(m))}°${flip}, ${m.side_km.toFixed(0)} km square · ${distance}${m.climate ? ` · ${m.climate}${m.climate_name ? " " + m.climate_name : ""}` : ""}${m.vector ? ` · sharpened at ${m.vector_res_m} m` : ""} · dot at ${fmtCoords(m.dot_lat, m.dot_lon)}</div>
         <div class="bars"><span>mask</span><div class="bar"><i style="width:${Math.max(0, m.mask_score) * 100}%"></i></div><span>coast</span><div class="bar"><i style="width:${Math.max(0, m.coast_score) * 100}%"></i></div></div>
         <div class="strip"><div><canvas></canvas><span>home</span></div><div><canvas></canvas><span>match</span></div><div><canvas></canvas><span>overlay</span></div></div>
         <div class="links"><a href="${osm}" target="_blank" rel="noopener">OpenStreetMap</a><a href="${gm}" target="_blank" rel="noopener">Google Maps</a><button type="button" class="ghost small" data-why="${m.rank}">Why?</button><button type="button" class="small" data-compare="${m.rank}">Compare</button></div>`;
@@ -1181,6 +1204,7 @@
     else if (a.continuity >= 0.7) points.push(`The matched shoreline runs in long continuous stretches; the largest connected piece covers ${pct(a.largestShare)} of your coastline.`);
     if (a.matchCoastExplained < a.homeCoastMatched - 0.2) points.push(`The match has extra shoreline of its own: only ${pct(a.matchCoastExplained)} of its coast corresponds to yours, so it is more intricate than home.`);
     else if (a.matchCoastExplained > a.homeCoastMatched + 0.2) points.push(`The match has less shoreline than home: ${pct(a.matchCoastExplained)} of its coast corresponds to yours, but much of yours has no counterpart, so it is a simpler coast.`);
+    if (topShare(run, m) != null) points.push(`Among the ${run.scored.n.toLocaleString()} coastal placements this run scored, its raw score sits in the ${fmtTop(topShare(run, m))}.`);
     if (m.mirror === "ns") points.push("This match is mirrored north to south: the sea sits on the same side as home but the sun comes from the other direction, as across the equator.");
     else if (m.flip) points.push("This match is mirrored: the sea sits on the opposite side compared with home.");
     if (Math.abs(thetaOf(m)) >= 30) points.push(`It is rotated ${Math.round(Math.abs(thetaOf(m)))} degrees, so the coast faces a different direction than yours.`);
@@ -1203,7 +1227,7 @@
     const bandKm = Math.round(bandPx * res / 100) / 10;
     const place = m.place || fmtCoords(m.dot_lat, m.dot_lon);
     $("why-title").textContent = `Why #${m.rank} ${place} matched`;
-    $("why-meta").textContent = `score ${m.score.toFixed(3)} · mask ${m.mask_score.toFixed(2)} · coast ${m.coast_score.toFixed(2)} · rotated ${thetaOf(m) > 0 ? "+" : ""}${Math.round(thetaOf(m))}°${mirrorText(m)}, ${m.side_km.toFixed(0)} km square${note ? " · " + note : ""}`;
+    $("why-meta").textContent = `score ${m.score.toFixed(3)}${topShare(run, m) != null ? ` · ${fmtTop(topShare(run, m))} of run` : ""} · mask ${m.mask_score.toFixed(2)} · coast ${m.coast_score.toFixed(2)} · rotated ${thetaOf(m) > 0 ? "+" : ""}${Math.round(thetaOf(m))}°${mirrorText(m)}, ${m.side_km.toFixed(0)} km square${note ? " · " + note : ""}`;
     drawWhy($("why-canvas"), a, n);
     $("why-agree").textContent = `${Math.round(a.agree * 100)}%`;
     $("why-home-coast").textContent = `${Math.round(a.homeCoastMatched * 100)}%`;
@@ -1473,10 +1497,12 @@
     ctx.font = `700 ${size}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
     ctx.fillText(title, gap, 98);
     ctx.fillStyle = "#6b7280";
-    ctx.font = '400 24px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
     const apart = run.params.home ? ` · ${fmtKm(haversineKm(run.params.home.lat, run.params.home.lon, m.dot_lat, m.dot_lon))} apart` : "";
     const climateText = m.climate ? ` · climate ${run.home_climate ? run.home_climate + " → " : ""}${m.climate}` : "";
-    ctx.fillText(`score ${m.score.toFixed(3)} · ${scoreLabel(m.score, run)[0]} · rotated ${thetaOf(m) > 0 ? "+" : ""}${Math.round(thetaOf(m))}°${mirrorText(m)}, ${m.side_km.toFixed(0)} km square${apart}${climateText}`, gap, 140);
+    const topLine = topShare(run, m) != null ? ` · ${fmtTop(topShare(run, m))} of run` : "";
+    const line = `score ${m.score.toFixed(3)} · ${scoreLabel(m.score, run)[0]}${topLine} · rotated ${thetaOf(m) > 0 ? "+" : ""}${Math.round(thetaOf(m))}°${mirrorText(m)}, ${m.side_km.toFixed(0)} km square${apart}${climateText}`;
+    ctx.font = `400 ${fitText(ctx, line, W - 2 * gap, 24, 400)}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+    ctx.fillText(line, gap, 140);
     const y = header;
     if (run.params.center) {
       const p0 = compare.home.project([run.params.home.lon, run.params.home.lat]);

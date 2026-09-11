@@ -2,6 +2,7 @@ importScripts("geo.js", "fft.js");
 
 let INDEX = null;
 let BASE = "";
+const HIST_BINS = 400, HIST_STEP = 2 / HIST_BINS;
 const TILES = new Map();
 const PENDING = new Map();
 const FFTS = new Map();
@@ -460,7 +461,7 @@ function processTile(tile) {
   const frac = sampleGrid(frame, N, res, p.supersample);
   let any = false, all = true;
   for (let k = 0; k < N * N; k++) { if (frac[k] >= 0.5) any = true; else all = false; }
-  if (!any || all) return { candidates: [], skipped: true };
+  if (!any || all) return { candidates: [], skipped: true, hist: null };
   const len = P * P;
   const world = new Float64Array(N * N), world2 = new Float64Array(N * N), bandW = new Uint8Array(N * N);
   for (let k = 0; k < N * N; k++) { world[k] = 2 * frac[k] - 1; world2[k] = world[k] * world[k]; bandW[k] = frac[k] >= 0.5 ? 1 : 0; }
@@ -531,7 +532,12 @@ function processTile(tile) {
   const size = Math.max(3, p.nms_px) | 1;
   const lm = maxFilter(best, N, size);
   const peaks = [];
-  for (let k = 0; k < N * N; k++) if (bestVar[k] >= 0 && best[k] >= p.coarse_min_score && best[k] >= lm[k]) peaks.push(k);
+  const hist = new Int32Array(HIST_BINS);
+  for (let k = 0; k < N * N; k++) {
+    if (bestVar[k] < 0 || best[k] === 0 || best[k] < lm[k]) continue;
+    hist[Math.max(0, Math.min(HIST_BINS - 1, Math.floor((best[k] + 1) / HIST_STEP)))]++;
+    if (best[k] >= p.coarse_min_score) peaks.push(k);
+  }
   peaks.sort((a, b) => best[b] - best[a]);
   const candidates = [];
   for (const k of peaks.slice(0, p.per_tile)) {
@@ -546,7 +552,7 @@ function processTile(tile) {
     theta = ((theta + 180) % 360 + 360) % 360 - 180;
     candidates.push({ lat, lon, theta, flip: v.flip, scale: v.scale, coarse: best[k], coarse_mask: bestMask[k], coarse_coast: bestCoast[k] });
   }
-  return { candidates, skipped: false };
+  return { candidates, skipped: false, hist };
 }
 
 function sampleLocalFine(frame, extM, resHalf) {
@@ -1024,7 +1030,7 @@ self.onmessage = async (ev) => {
         if (r) refined.push(r);
         if (refined.length >= CTX.p.refine_per_tile) break;
       }
-      self.postMessage({ id: msg.id, ok: true, matches: refined, skipped: res.skipped, ms: performance.now() - t0 });
+      self.postMessage({ id: msg.id, ok: true, matches: refined, skipped: res.skipped, hist: res.hist ? Array.from(res.hist) : null, ms: performance.now() - t0 });
     } else if (msg.type === "raster") {
       await ensureRegion(msg.s, msg.n, msg.w, msg.e);
       const { width, height, w, s, e, n } = msg;

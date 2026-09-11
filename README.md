@@ -267,6 +267,14 @@ the search grid is offset from the home grid by a fraction of a pixel. Anything
 above 0.8 is a close twin. Between 0.7 and 0.8 the broad shape agrees and some
 detail lines up. Below 0.7 you are looking at the same general kind of coast.
 
+Every match also reports where it sits in its own run: "top 0.4% of 41,200
+placements" means the search scored 41,200 distinct coastal placements (every
+local maximum of the correlation surface, floor or no floor) and this one's raw
+score beat all but 0.4% of them. Unlike the score itself, that figure is fair
+across squares: a marsh coast that tops out at 0.65 and a smooth bay that
+reaches 0.85 can both be in the top 0.1% of their runs. The JSON carries it as
+`top_pct` on each match and the histogram as `meta.scored`.
+
 Smaller scales win more often than they should, because a 0.8x window has
 fewer pixels and is easier to correlate by chance. The apps and the command
 line therefore leave 0.8x out by default. Pass `--scales 0.8,1,1.25` to add

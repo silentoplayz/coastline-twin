@@ -12,6 +12,9 @@ from .geo import LocalFrame, coast_band, haversine_km, is_land, sample_land
 from .template import describe_mirror, forward
 
 
+HIST_BINS = 400
+HIST_STEP = 2.0 / HIST_BINS
+
 @dataclass
 class Tile:
     lat: float
@@ -390,7 +393,7 @@ def process_tile(tile):
     fraction = sample_land(frame, tile.half_m, cfg.res_m, cfg.supersample)
     land = fraction >= 0.5
     if land.all() or not land.any():
-        return []
+        return [], np.zeros(HIST_BINS, dtype=np.int64)
     n = land.shape[0]
     mmax = max(v.size for v in variants)
     p = sfft.next_fast_len(n + mmax - 1, real=True)
@@ -437,10 +440,14 @@ def process_tile(tile):
         best_var[sl][better] = var.index
     size = max(3, int(cfg.nms_px)) | 1
     local_max = maximum_filter(best, size=size, mode="nearest")
-    peaks = (best >= local_max) & (best >= cfg.min_score) & (best_var >= 0)
+    maxima = (best >= local_max) & (best_var >= 0) & (best != 0)
+    hist = np.bincount(
+        np.clip(((best[maxima] + 1.0) / HIST_STEP).astype(np.int64), 0, HIST_BINS - 1), minlength=HIST_BINS
+    )
+    peaks = maxima & (best >= cfg.min_score)
     rows, cols = np.nonzero(peaks)
     if rows.size == 0:
-        return []
+        return [], hist
     order = np.argsort(best[rows, cols])[::-1][: cfg.per_tile]
     out = []
     for r, c in zip(rows[order], cols[order]):
@@ -458,7 +465,19 @@ def process_tile(tile):
             out.append(refined)
         if len(out) >= cfg.refine_per_tile:
             break
-    return out
+    return out, hist
+
+
+def top_share(scored, raw_score):
+    """Share of a run's scored placements at or above raw_score, in percent, the match itself included."""
+    if not scored or not scored.get("n"):
+        return None
+    hist = scored["hist"]
+    n = scored["n"]
+    pos = (raw_score + 1.0) / HIST_STEP
+    b = int(min(max(math.floor(pos), 0), HIST_BINS - 1))
+    above = sum(hist[b + 1:]) + hist[b] * max(0.0, min(1.0, b + 1 - pos))
+    return round(100.0 * min(n, above + 1) / n, 3)
 
 
 def merge(candidates, cfg, top=None):
@@ -482,10 +501,12 @@ def merge(candidates, cfg, top=None):
 def run_search(template, variants, cfg, progress=None, on_candidates=None):
     tiles = [t for t in make_tiles(cfg) if tile_may_contain(t, cfg)]
     candidates = []
+    hist = np.zeros(HIST_BINS, dtype=np.int64)
     if cfg.workers <= 1:
         _init(template, variants, cfg)
         for tile in tiles:
-            found = process_tile(tile)
+            found, tile_hist = process_tile(tile)
+            hist += tile_hist
             candidates.extend(found)
             if progress:
                 progress(1)
@@ -498,10 +519,12 @@ def run_search(template, variants, cfg, progress=None, on_candidates=None):
         ) as pool:
             futures = [pool.submit(process_tile, t) for t in tiles]
             for fut in as_completed(futures):
-                found = fut.result()
+                found, tile_hist = fut.result()
+                hist += tile_hist
                 candidates.extend(found)
                 if progress:
                     progress(1)
                 if on_candidates and found:
                     on_candidates(candidates)
-    return merge(candidates, cfg, top=max(cfg.top, cfg.vector_top)), len(tiles), len(candidates)
+    scored = {"n": int(hist.sum()), "hist": [int(v) for v in hist]}
+    return merge(candidates, cfg, top=max(cfg.top, cfg.vector_top)), len(tiles), len(candidates), scored

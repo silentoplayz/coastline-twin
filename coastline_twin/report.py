@@ -136,7 +136,7 @@ def write_html(template, matches, meta, path, sheet_name, template_name):
         gmaps = f"https://www.google.com/maps/search/?api=1&query={m['dot_lat']:.5f},{m['dot_lon']:.5f}"
         place = html.escape(m.get("place", ""))
         rows.append(
-            f"<tr><td>{m['rank']}</td><td>{m['score']:.3f}</td><td>{m['mask_score']:.2f}</td><td>{m['coast_score']:.2f}</td><td>{place}</td>"
+            f"<tr><td>{m['rank']}</td><td>{m['score']:.3f}</td><td>{fmt_top(m.get('top_pct'))}</td><td>{m['mask_score']:.2f}</td><td>{m['coast_score']:.2f}</td><td>{place}</td>"
             f"<td>{m['dot_lat']:.4f}, {m['dot_lon']:.4f}</td><td>{m['theta']:+.0f}°</td>"
             f"<td>{'yes' if m['flip'] else 'no'}</td><td>{m['side_km']:.0f} km</td>"
             f"<td><a href=\"{osm}\">OSM</a> · <a href=\"{gmaps}\">Google</a></td></tr>"
@@ -152,9 +152,9 @@ code{{background:#f3f3f3;padding:1px 4px}}
 </style></head><body>
 <h1>Coastline Twin</h1>
 <p>{"Home dot at <code>" + f"{template.home[0]:.4f}, {template.home[1]:.4f}" + "</code>" if template.home is not None else "A drawn coastline"}, square of {template.side_m / 1000:.0f} km at {template.res_m:.0f} m per pixel.
-Searched {meta['tiles']} tiles, {meta['variants']} template variants, {meta['candidates']} raw peaks, in {meta['seconds']:.0f} s.</p>
+Searched {meta['tiles']} tiles, {meta['variants']} template variants, {meta['candidates']} raw peaks, in {meta['seconds']:.0f} s.{scored_note(meta)}</p>
 <p>Score blends two normalized cross-correlations: the land and water masks (weight {1 - meta['detail_weight']:.2f}) and the coastline band (weight {meta['detail_weight']:.2f}). 1.0 is identical. Rotation is counterclockwise, mirrored means flipped east to west.</p>
-<table><thead><tr><th>#</th><th>Score</th><th>Mask</th><th>Coast</th><th>Near</th><th>Dot lands at</th><th>Rotation</th><th>Mirrored</th><th>Square</th><th>Map</th></tr></thead>
+<table><thead><tr><th>#</th><th>Score</th><th>Top</th><th>Mask</th><th>Coast</th><th>Near</th><th>Dot lands at</th><th>Rotation</th><th>Mirrored</th><th>Square</th><th>Map</th></tr></thead>
 <tbody>{''.join(rows)}</tbody></table>
 <h2>Home square</h2><img src="{template_name}" alt="home square">
 <h2>Matches</h2><p>Left: home. Middle: the match, re-projected into the home frame so the dot sits at the same spot. Right: the match with the home coastline drawn in red.</p>
@@ -164,14 +164,33 @@ Searched {meta['tiles']} tiles, {meta['variants']} template variants, {meta['can
     Path(path).write_text(body)
 
 
+def fmt_top(pct):
+    if pct is None:
+        return ""
+    if pct >= 10:
+        return f"top {pct:.0f}%"
+    if pct >= 1:
+        return f"top {pct:.1f}%"
+    if pct >= 0.01:
+        return f"top {pct:.2f}%"
+    return "top <0.01%"
+
+
+def scored_note(meta):
+    scored = meta.get("scored") or {}
+    if not scored.get("n"):
+        return ""
+    return f" Every local maximum of the score surface counts as a placement: {scored['n']:,} were scored, and each match's Top column says how far up that list its raw score sits."
+
+
 def print_table(matches):
     if not matches:
         print("No matches above the score threshold.")
         return
-    print(f"{'#':>3} {'score':>6} {'mask':>5} {'coast':>5} {'rot':>6} {'flip':>4} {'scale':>5}  {'dot lands at':<22} near")
+    print(f"{'#':>3} {'score':>6} {'top':>10} {'mask':>5} {'coast':>5} {'rot':>6} {'flip':>4} {'scale':>5}  {'dot lands at':<22} near")
     for m in matches:
         flip = "yes" if m["flip"] else "no"
         coords = f"{m['dot_lat']:.4f}, {m['dot_lon']:.4f}"
         print(
-            f"{m['rank']:>3} {m['score']:>6.3f} {m['mask_score']:>5.2f} {m['coast_score']:>5.2f} {m['theta']:>+6.0f} {flip:>4} {m['scale']:>5.2f}  {coords:<22} {m.get('place', '')}"
+            f"{m['rank']:>3} {m['score']:>6.3f} {fmt_top(m.get('top_pct')):>10} {m['mask_score']:>5.2f} {m['coast_score']:>5.2f} {m['theta']:>+6.0f} {flip:>4} {m['scale']:>5.2f}  {coords:<22} {m.get('place', '')}"
         )
