@@ -348,7 +348,8 @@ dialog.why { width: min(960px, 94vw); max-height: 90vh; overflow-y: auto; }
 .why-text p { font-size: 14px; line-height: 1.5; margin-top: 12px; }
 .why-text ul { margin: 8px 0 0; padding-left: 20px; font-size: 13px; line-height: 1.5; }
 .why-text li { margin-bottom: 6px; }
-dialog.why.why-preview .why-canvas-wrap, dialog.why.why-preview .why-stats { opacity: 0.45; transition: opacity 0.2s; }
+dialog.why.why-preview .why-canvas-wrap { opacity: 0.45; transition: opacity 0.2s; }
+dialog.why.why-preview .why-stats dd { color: var(--muted); }
 dialog.why.why-preview #why-summary { color: var(--muted); font-style: italic; }
 @media (max-width: 760px) { .why-body { grid-template-columns: 1fr; } }
 

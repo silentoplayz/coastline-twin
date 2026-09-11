@@ -1241,17 +1241,18 @@
     $("why-title").textContent = `Why #${m.rank} ${place} matched`;
     $("why-meta").textContent = `score ${m.score.toFixed(3)}${topShare(run, m) != null ? ` · ${fmtTop(topShare(run, m))} of run` : ""} · mask ${m.mask_score.toFixed(2)} · coast ${m.coast_score.toFixed(2)} · rotated ${thetaOf(m) > 0 ? "+" : ""}${Math.round(thetaOf(m))}°${mirrorText(m)}, ${m.side_km.toFixed(0)} km square${note ? " · " + note : ""}`;
     drawWhy($("why-canvas"), a, n);
-    $("why-agree").textContent = `${Math.round(a.agree * 100)}%`;
-    $("why-home-coast").textContent = `${Math.round(a.homeCoastMatched * 100)}%`;
-    $("why-match-coast").textContent = `${Math.round(a.matchCoastExplained * 100)}%`;
     $("why-score").textContent = m.score.toFixed(3);
-    $("why-continuity").textContent = `${Math.round(a.continuity * 100)}%`;
-    $("why-longest").textContent = `${Math.round(a.largestShare * 100)}% of your coast`;
     if (pending) {
+      for (const id of ["why-agree", "why-home-coast", "why-match-coast", "why-continuity", "why-longest"]) $(id).textContent = "…";
       $("why-summary").textContent = pending;
       $("why-points").innerHTML = "";
       return;
     }
+    $("why-agree").textContent = `${Math.round(a.agree * 100)}%`;
+    $("why-home-coast").textContent = `${Math.round(a.homeCoastMatched * 100)}%`;
+    $("why-match-coast").textContent = `${Math.round(a.matchCoastExplained * 100)}%`;
+    $("why-continuity").textContent = `${Math.round(a.continuity * 100)}%`;
+    $("why-longest").textContent = `${Math.round(a.largestShare * 100)}% of your coast`;
     const text = whyText(a, { ...m, n }, run, res, bandKm);
     $("why-summary").textContent = text.summary;
     $("why-points").innerHTML = text.points.map((t) => `<li>${escapeHtml(t)}</li>`).join("");
