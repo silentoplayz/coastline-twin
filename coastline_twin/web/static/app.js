@@ -757,6 +757,39 @@
     return body;
   }
 
+  const interimMarkers = [];
+  function clearInterim() {
+    for (const mk of interimMarkers) mk.remove();
+    interimMarkers.length = 0;
+    const list = $("status-interim");
+    list.innerHTML = "";
+    list.hidden = true;
+  }
+  function renderInterim(leaders) {
+    const list = $("status-interim");
+    list.innerHTML = "";
+    if (!leaders || !leaders.length) { list.hidden = true; return; }
+    const title = document.createElement("li");
+    title.className = "interim-title";
+    title.textContent = "Leading so far";
+    title.style.display = "block";
+    list.appendChild(title);
+    leaders.forEach((m, i) => {
+      const li = document.createElement("li");
+      const where = `${fmtCoords(m.dot_lat, m.dot_lon)}${m.climate ? " · " + m.climate : ""}`;
+      li.innerHTML = `<span class="rank">${i + 1}</span><span>${where}<br><span class="small">rotated ${thetaOf(m) > 0 ? "+" : ""}${Math.round(thetaOf(m))}°${mirrorText(m)}, ${m.side_km.toFixed(0)} km</span></span><b>${m.score.toFixed(3)}</b>`;
+      list.appendChild(li);
+    });
+    list.hidden = false;
+    for (const mk of interimMarkers) mk.remove();
+    interimMarkers.length = 0;
+    if (!webgl) return;
+    leaders.forEach((m, i) => {
+      const mk = makePin("pin-match interim", { text: String(i + 1) });
+      mk.setLngLat([m.dot_lon, m.dot_lat]).addTo(map);
+      interimMarkers.push(mk);
+    });
+  }
   function setStatus(label, text, pct, { done = false, failed = false, cancellable = false } = {}) {
     const box = $("status");
     box.hidden = false;
@@ -832,6 +865,8 @@
   function renderJobStatus(job) {
     const p = job.progress || { done: 0, total: 0 };
     const pct = p.total ? Math.round(100 * p.done / p.total) : 0;
+    if (job.status === "running") renderInterim(p.interim || []);
+    else clearInterim();
     if (job.status === "running" && p.stage === "vector") {
       setStatus("Sharpening with vector coastlines…", `${p.vector_done} of ${p.vector_total} matches re-scored at about 250 m`, 100, { cancellable: true });
     } else if (job.status === "running") {

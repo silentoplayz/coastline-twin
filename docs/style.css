@@ -372,3 +372,10 @@ dialog.why { width: min(960px, 94vw); max-height: 90vh; overflow-y: auto; }
 
 dialog.card { width: min(980px, 94vw); }
 dialog.card img { width: 100%; height: auto; border-radius: 8px; border: 1px solid var(--border); display: block; }
+
+.interim { margin: 10px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.interim li { display: grid; grid-template-columns: 18px 1fr auto; gap: 8px; align-items: baseline; color: var(--muted); }
+.interim li b { color: var(--text); font-variant-numeric: tabular-nums; }
+.interim li .rank { color: var(--muted); }
+.interim-title { margin-top: 10px; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.pin-match.interim { opacity: .55; background: var(--muted); }

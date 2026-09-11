@@ -911,6 +911,39 @@
     return kept;
   }
 
+  const interimMarkers = [];
+  function clearInterim() {
+    for (const mk of interimMarkers) mk.remove();
+    interimMarkers.length = 0;
+    const list = $("status-interim");
+    list.innerHTML = "";
+    list.hidden = true;
+  }
+  function renderInterim(leaders) {
+    const list = $("status-interim");
+    list.innerHTML = "";
+    if (!leaders || !leaders.length) { list.hidden = true; return; }
+    const title = document.createElement("li");
+    title.className = "interim-title";
+    title.textContent = "Leading so far";
+    title.style.display = "block";
+    list.appendChild(title);
+    leaders.forEach((m, i) => {
+      const li = document.createElement("li");
+      const where = `${fmtCoords(m.dot_lat, m.dot_lon)}${m.climate ? " · " + m.climate : ""}`;
+      li.innerHTML = `<span class="rank">${i + 1}</span><span>${where}<br><span class="small">rotated ${thetaOf(m) > 0 ? "+" : ""}${Math.round(thetaOf(m))}°${mirrorText(m)}, ${m.side_km.toFixed(0)} km</span></span><b>${m.score.toFixed(3)}</b>`;
+      list.appendChild(li);
+    });
+    list.hidden = false;
+    for (const mk of interimMarkers) mk.remove();
+    interimMarkers.length = 0;
+    if (!webgl) return;
+    leaders.forEach((m, i) => {
+      const mk = makePin("pin-match interim", { text: String(i + 1) });
+      mk.setLngLat([m.dot_lon, m.dot_lat]).addTo(map);
+      interimMarkers.push(mk);
+    });
+  }
   function setStatus(label, text, pct, { done = false, failed = false, cancellable = false } = {}) {
     const box = $("status");
     box.hidden = false;
@@ -926,6 +959,7 @@
   $("run-button").addEventListener("click", startRun);
   $("cancel-button").addEventListener("click", () => {
     state.cancelled = true;
+    clearInterim();
     if (pool) { pool.destroy(); pool = null; }
     state.running = false;
     setStatus("Cancelled", "", 0, { failed: true });
@@ -957,6 +991,7 @@
           const res = await pool.call(i, { type: "tile", tile });
           all.push(...res.matches);
           done++;
+          if (res.matches.length || done % 10 === 0) renderInterim(merge(all.slice(), p, 5));
           const elapsed = (performance.now() - t0) / 1000;
           const eta = done ? (tiles.length - done) * (elapsed / done) : null;
           setStatus(`Searching… ${Math.round(100 * done / tiles.length)}%`,
@@ -965,6 +1000,7 @@
         }
       };
       await Promise.all(pool.workers.map((_, i) => runWorker(i)));
+      clearInterim();
       if (state.cancelled) return;
       let matches = merge(all, p, Math.max(p.top, p.vector_top || 0));
       if (p.vector_top > 0 && matches.length) {
@@ -1005,6 +1041,7 @@
       setStatus("Done", `${matches.length} matches from ${tiles.length} tiles in ${fmtDuration(seconds)}`, 100, { done: true });
       toast(`Done: ${matches.length} matches in ${fmtDuration(seconds)}`);
     } catch (err) {
+      clearInterim();
       if (!state.cancelled) { setStatus("Failed", err.message, 0, { failed: true }); toast(err.message); }
     } finally {
       state.running = false;

@@ -479,15 +479,18 @@ def merge(candidates, cfg, top=None):
     return kept
 
 
-def run_search(template, variants, cfg, progress=None):
+def run_search(template, variants, cfg, progress=None, on_candidates=None):
     tiles = [t for t in make_tiles(cfg) if tile_may_contain(t, cfg)]
     candidates = []
     if cfg.workers <= 1:
         _init(template, variants, cfg)
         for tile in tiles:
-            candidates.extend(process_tile(tile))
+            found = process_tile(tile)
+            candidates.extend(found)
             if progress:
                 progress(1)
+            if on_candidates and found:
+                on_candidates(candidates)
     else:
         ctx = multiprocessing.get_context("fork")
         with ProcessPoolExecutor(
@@ -495,7 +498,10 @@ def run_search(template, variants, cfg, progress=None):
         ) as pool:
             futures = [pool.submit(process_tile, t) for t in tiles]
             for fut in as_completed(futures):
-                candidates.extend(fut.result())
+                found = fut.result()
+                candidates.extend(found)
                 if progress:
                     progress(1)
+                if on_candidates and found:
+                    on_candidates(candidates)
     return merge(candidates, cfg, top=max(cfg.top, cfg.vector_top)), len(tiles), len(candidates)

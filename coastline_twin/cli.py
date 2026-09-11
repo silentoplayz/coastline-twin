@@ -8,7 +8,7 @@ import numpy as np
 
 from tqdm import tqdm
 
-from .search import SearchConfig, climate_at, climate_name, make_tiles, run_search, tile_may_contain
+from .search import SearchConfig, climate_at, climate_name, make_tiles, merge, run_search, tile_may_contain
 from .template import Template, rotation_list
 
 
@@ -144,23 +144,32 @@ def main(argv=None):
     variants = template.variants(thetas, flips, scales, hemisphere_flip=args.hemisphere_flip)
     bar = tqdm(total=n_tiles, unit="tile")
     progress_path = out_dir / "progress.json"
-    state = {"done": 0, "written": 0.0}
+    state = {"done": 0, "written": 0.0, "interim": []}
+
+    def write_progress(force=False):
+        now = time.time()
+        if not force and now - state["written"] < 0.5:
+            return
+        state["written"] = now
+        elapsed = now - t0
+        rate = state["done"] / elapsed if elapsed > 0 else 0.0
+        eta = (n_tiles - state["done"]) / rate if rate > 0 else None
+        progress_path.write_text(
+            json.dumps({"done": state["done"], "total": n_tiles, "elapsed": round(elapsed, 1), "eta": eta, "interim": state["interim"]})
+        )
 
     def advance(k):
         bar.update(k)
         state["done"] += k
-        now = time.time()
-        if now - state["written"] >= 0.5 or state["done"] >= n_tiles:
-            state["written"] = now
-            elapsed = now - t0
-            rate = state["done"] / elapsed if elapsed > 0 else 0.0
-            eta = (n_tiles - state["done"]) / rate if rate > 0 else None
-            progress_path.write_text(
-                json.dumps({"done": state["done"], "total": n_tiles, "elapsed": round(elapsed, 1), "eta": eta})
-            )
+        write_progress(force=state["done"] >= n_tiles)
 
-    progress_path.write_text(json.dumps({"done": 0, "total": n_tiles, "elapsed": 0.0, "eta": None}))
-    matches, n_tiles, n_candidates = run_search(template, variants, cfg, progress=advance)
+    def leaders(candidates):
+        keep = ("score", "dot_lat", "dot_lon", "theta", "theta_display", "mirror", "flip", "scale", "side_km", "climate")
+        state["interim"] = [{k: m.get(k) for k in keep} for m in merge(list(candidates), cfg, top=5)]
+        write_progress()
+
+    progress_path.write_text(json.dumps({"done": 0, "total": n_tiles, "elapsed": 0.0, "eta": None, "interim": []}))
+    matches, n_tiles, n_candidates = run_search(template, variants, cfg, progress=advance, on_candidates=leaders)
     bar.close()
     vector_done = 0
     if cfg.vector_top > 0 and matches:

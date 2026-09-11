@@ -128,8 +128,9 @@ What the page does:
 - **Matching and filters.** Rotation range, mirror images, sizes, detail
   weight, hemisphere, latitude band, and a region limit taken from the current
   map view.
-- **Search the planet.** Progress shows tiles done and the time left. Cancel at
-  any point. When it finishes the matches appear as cards and as numbered pins
+- **Search the planet.** Progress shows tiles done and the time left, with
+  the five leading matches so far listed under the bar and pinned faintly on
+  the map, firming up as tiles finish. Cancel at any point. When it finishes the matches appear as cards and as numbered pins
   on a MapLibre globe, each with the matched square drawn on it. Click a card
   to fly there, or press Compare to see home and match side by side on real
   map imagery with the match rotated, mirrored, and scaled to line up. Sort
