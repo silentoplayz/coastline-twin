@@ -245,7 +245,8 @@ progress { width: 100%; height: 8px; margin-top: 8px; border-radius: 4px; overfl
 .bar { height: 5px; background: var(--panel2); border-radius: 3px; overflow: hidden; }
 .bar i { display: block; height: 100%; background: var(--accent); }
 .match .links { grid-column: 2 / span 2; font-size: 12px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-.match .links button { margin-left: auto; }
+.match .links button:first-of-type { margin-left: auto; }
+.match .links button + button { margin-left: 6px; }
 .files { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
 .files a { display: block; padding: 8px 10px; background: var(--panel); border: 1px solid var(--border); border-radius: 7px; text-decoration: none; }
 
@@ -348,3 +349,13 @@ dialog.why { width: min(960px, 94vw); max-height: 90vh; overflow-y: auto; }
 .why-text ul { margin: 8px 0 0; padding-left: 20px; font-size: 13px; line-height: 1.5; }
 .why-text li { margin-bottom: 6px; }
 @media (max-width: 760px) { .why-body { grid-template-columns: 1fr; } }
+
+.chip { display: inline-block; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; padding: 1px 7px; border-radius: 999px; margin-left: 6px; vertical-align: middle; border: 1px solid transparent; }
+.chip-strong { background: color-mix(in srgb, #2ca02c 18%, transparent); color: #1f7a1f; border-color: color-mix(in srgb, #2ca02c 40%, transparent); }
+.chip-good { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+.chip-fair { background: color-mix(in srgb, #e6a23c 18%, transparent); color: #9a6a12; border-color: color-mix(in srgb, #e6a23c 45%, transparent); }
+.chip-weak { background: var(--panel2); color: var(--muted); border-color: var(--border); }
+:root.theme-dark .chip-strong, :root.map-dark .chip-strong { color: #7ed07e; }
+:root.theme-dark .chip-fair, :root.map-dark .chip-fair { color: #f0c169; }
+.matches .empty { padding: 18px 12px; color: var(--muted); font-size: 13px; text-align: center; border: 1px dashed var(--border); border-radius: var(--radius); }
+.match:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }

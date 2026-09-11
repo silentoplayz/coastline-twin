@@ -52,6 +52,9 @@ class PreviewRequest(BaseModel):
     center: Optional[Location] = None
     side_km: float = Field(default=60, ge=5, le=1000)
     res_m: Optional[float] = None
+    same_hemisphere: bool = False
+    lat_band: Optional[float] = None
+    bbox: Optional[list[float]] = None
 
 
 class JobRequest(PreviewRequest):
@@ -228,7 +231,8 @@ def preview(req: PreviewRequest):
     max_ext = max(template.footprint_extent(45.0, sc) for sc in scales)
     cfg = SearchConfig(
         res_m=res_m, tile_half_m=600_000.0 + max_ext, min_score=0.5, nms_px=3, per_tile=1, home=home,
-        exclude_km=0.0, min_sep_km=0.0, top=1, bbox=None, lat_band=None, same_hemisphere=False, workers=1,
+        exclude_km=0.0, min_sep_km=0.0, top=1, bbox=tuple(req.bbox) if req.bbox and len(req.bbox) == 4 else None,
+        lat_band=req.lat_band, same_hemisphere=req.same_hemisphere, workers=1,
     )
     tiles = sum(1 for t in make_tiles(cfg) if tile_may_contain(t, cfg))
     warnings = []

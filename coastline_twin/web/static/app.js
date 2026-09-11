@@ -255,6 +255,12 @@
     const frame = makeFrame(lat, lon);
     return [[-h, -h], [h, -h], [h, h], [-h, h]].map(([x, y]) => toLatLon(frame, x, y));
   }
+  function scoreLabel(score) {
+    if (score >= 0.8) return ["close twin", "chip-strong"];
+    if (score >= 0.7) return ["strong", "chip-good"];
+    if (score >= 0.6) return ["outline match", "chip-fair"];
+    return ["loose", "chip-weak"];
+  }
   function fmtKm(km) {
     return `${Math.round(km).toLocaleString()} km`;
   }
@@ -342,11 +348,12 @@
   document.querySelectorAll('input[name="center-mode"]').forEach((r) => r.addEventListener("change", () => {
     state.centerMode = r.value;
     if (state.centerMode === "custom" && state.home && !state.center) state.center = { ...state.home };
+    if (state.centerMode === "custom" && state.home) toast("Drag the blue pin to move the square. Your home dot stays put.", 4500);
     drawSquare(); schedulePreview(); saveSettings();
   }));
   $("side-km").addEventListener("input", () => { $("side-out").textContent = $("side-km").value; drawSquare(); schedulePreview(); saveSettings(); });
   $("detail-weight").addEventListener("input", () => { $("detail-out").textContent = $("detail-weight").value; });
-  for (const id of ["rot-max", "flip"]) $(id).addEventListener("change", schedulePreview);
+  for (const id of ["rot-max", "flip", "same-hemisphere", "lat-band"]) $(id).addEventListener("change", schedulePreview);
   document.querySelectorAll('input[name="scale"]').forEach((c) => c.addEventListener("change", schedulePreview));
 
   const COORD_RE = /^\s*(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)\s*$/;
@@ -460,6 +467,9 @@
     if (state.centerMode === "custom" && state.center) body.center = state.center;
     const res = $("res-m").value;
     if (res) body.res_m = Number(res);
+    body.same_hemisphere = $("same-hemisphere").checked;
+    body.lat_band = $("lat-band").value === "" ? null : Number($("lat-band").value);
+    body.bbox = state.bbox;
     return body;
   }
   function schedulePreview() {
@@ -485,6 +495,8 @@
       $("stat-land").textContent = `${Math.round(info.stats.land_fraction * 100)}%`;
       $("stat-coast").textContent = info.stats.coast_ratio.toFixed(2);
       $("stat-tiles").textContent = info.tiles;
+      const workers = Number($("workers").value) || Math.max(1, Math.min((navigator.hardwareConcurrency || 4) - 2, 12));
+      $("run-estimate").textContent = `About ${fmtDuration(info.tiles * 5.5 / workers + 10)} on ${workers} processes`;
       if (info.warnings && info.warnings.length) {
         $("preview-warning").textContent = info.warnings.join(" ");
         $("preview-warning").hidden = false;
@@ -550,6 +562,7 @@
     $("cancel-button").hidden = !cancellable;
   }
 
+  window.addEventListener("beforeunload", (e) => { if (state.running) { e.preventDefault(); e.returnValue = ""; } });
   $("run-button").addEventListener("click", async () => {
     if (!state.home || state.running) return;
     $("run-button").disabled = true;
@@ -713,6 +726,12 @@
     $("results-count").textContent = matches.length === run.matches.length ? `${matches.length} matches` : `${matches.length} of ${run.matches.length} matches`;
     const list = $("match-list");
     list.innerHTML = "";
+    if (!matches.length) {
+      const empty = document.createElement("li");
+      empty.className = "empty";
+      empty.textContent = run.matches.length ? "Every match is mirrored. Untick Hide mirrored to see them." : "No matches cleared the minimum score. Lower it under Advanced, widen the filters, or enlarge the square and search again.";
+      list.appendChild(empty);
+    }
     const sheet = $("sheet");
     sheet.innerHTML = "";
     const bounds = [];
@@ -725,9 +744,11 @@
       const gm = `https://www.google.com/maps/search/?api=1&query=${m.dot_lat.toFixed(5)},${m.dot_lon.toFixed(5)}`;
       const li = document.createElement("li");
       li.className = "match";
+      li.tabIndex = 0;
+      li.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target === li) selectMatch(m.rank, true); });
       li.innerHTML = `
         <div class="rank">${m.rank}</div>
-        <div class="place">${escapeHtml(place)}</div>
+        <div class="place">${escapeHtml(place)} <span class="chip ${scoreLabel(m.score)[1]}">${scoreLabel(m.score)[0]}</span></div>
         <div class="score">${m.score.toFixed(3)}</div>
         <div class="detail">rotated ${m.theta > 0 ? "+" : ""}${Math.round(m.theta)}°${flip}, ${m.side_km.toFixed(0)} km square · ${distance} from home · dot at ${fmtCoords(m.dot_lat, m.dot_lon)}</div>
         <div class="bars"><span>mask</span><div class="bar"><i style="width:${Math.max(0, m.mask_score) * 100}%"></i></div><span>coast</span><div class="bar"><i style="width:${Math.max(0, m.coast_score) * 100}%"></i></div></div>
@@ -1035,7 +1056,12 @@
     for (const cm of [compare.home, compare.match]) for (const id of ["coast", "coast-ok"]) if (cm.getLayer(id)) cm.setLayoutProperty(id, "visibility", $("compare-coast").checked ? "visible" : "none");
     const place = m.place || fmtCoords(m.dot_lat, m.dot_lon);
     $("compare-title").textContent = `#${m.rank} ${place}`;
+    $("compare-meta").innerHTML = "";
     $("compare-meta").textContent = `score ${m.score.toFixed(3)} · rotated ${m.theta > 0 ? "+" : ""}${Math.round(m.theta)}°${m.flip ? ", mirrored" : ""}, ${m.side_km.toFixed(0)} km square · ${fmtKm(haversineKm(run.params.home.lat, run.params.home.lon, m.dot_lat, m.dot_lon))} from home · dot lands at ${fmtCoords(m.dot_lat, m.dot_lon)}`;
+    const gmap = document.createElement("a");
+    gmap.href = `https://www.google.com/maps/search/?api=1&query=${m.dot_lat.toFixed(5)},${m.dot_lon.toFixed(5)}`;
+    gmap.target = "_blank"; gmap.rel = "noopener"; gmap.textContent = "open in Google Maps";
+    $("compare-meta").append(" · ", gmap);
     $("compare-home-caption").textContent = `Home · ${run.params.side_km} km square`;
     $("compare-match-caption").textContent = `${place}${m.flip ? " · mirrored, labels off" : ""}`;
     $("compare-prev").disabled = compare.index === 0;
