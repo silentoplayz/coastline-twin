@@ -1289,7 +1289,7 @@
       if (matchCoast[k]) { mc++; if (homeBand[k]) mcMatched++; }
     }
     const runs = runsOf(homeCoast, matchBand, n, Math.max(8, Math.round(n / 2)));
-    return { cls, agree: agree / (n * n), homeCoastMatched: hc ? hcMatched / hc : 0, matchCoastExplained: mc ? mcMatched / mc : 0, missing, extra, cells, homeBand, matchBand, continuity: runs.continuity, longest: runs.longest };
+    return { cls, agree: agree / (n * n), homeCoastMatched: hc ? hcMatched / hc : 0, matchCoastExplained: mc ? mcMatched / mc : 0, missing, extra, cells, homeBand, matchBand, continuity: runs.continuity, longest: runs.longest, largestShare: hc ? runs.longest / hc : 0 };
   }
   function runsOf(homeCoast, matchBand, n, runFull) {
     const matched = new Uint8Array(n * n);
@@ -1318,7 +1318,7 @@
     }
     return { continuity: acc / total, longest };
   }
-  function whyText(a, m, run) {
+  function whyText(a, m, run, res, bandKm) {
     const pct = (v) => `${Math.round(v * 100)}%`;
     const points = [];
     const avgBad = a.cells.reduce((s, c) => s + c.bad / Math.max(1, c.total), 0) / 9;
@@ -1327,9 +1327,9 @@
     const best = a.cells.map((c, i) => ({ i, ok: c.coast ? c.coastOk / c.coast : -1, coast: c.coast })).filter((c) => c.coast >= 5).sort((x, y) => y.ok - x.ok)[0];
     const name = (i) => DIRS[Math.floor(i / 3)][i % 3];
     let summary;
-    if (a.homeCoastMatched >= 0.75) summary = `A close twin: ${pct(a.homeCoastMatched)} of your coastline has the match's shoreline within ${run.params.band_px || 2} km, and the land and water agree on ${pct(a.agree)} of the square.`;
-    else if (a.homeCoastMatched >= 0.5) summary = `The broad shape agrees on ${pct(a.agree)} of the square, and ${pct(a.homeCoastMatched)} of your coastline has the match's shoreline within ${run.params.band_px || 2} km. The rest runs a different course.`;
-    else summary = `The land and water agree on ${pct(a.agree)} of the square, but only ${pct(a.homeCoastMatched)} of your coastline has the match's shoreline within ${run.params.band_px || 2} km. This is a match of outline, not of detail.`;
+    if (a.homeCoastMatched >= 0.75) summary = `A close twin: ${pct(a.homeCoastMatched)} of your coastline has the match's shoreline within ${bandKm} km, and the land and water agree on ${pct(a.agree)} of the square.`;
+    else if (a.homeCoastMatched >= 0.5) summary = `The broad shape agrees on ${pct(a.agree)} of the square, and ${pct(a.homeCoastMatched)} of your coastline has the match's shoreline within ${bandKm} km. The rest runs a different course.`;
+    else summary = `The land and water agree on ${pct(a.agree)} of the square, but only ${pct(a.homeCoastMatched)} of your coastline has the match's shoreline within ${bandKm} km. This is a match of outline, not of detail.`;
     if (best && best.ok > 0.6) points.push(`The coastlines line up best in the ${name(best.i)} of the square, where ${pct(best.ok)} of your shoreline is matched.`);
     if (worst && worst.frac > Math.max(0.08, 1.5 * avgBad)) {
       const kind = worst.missing >= worst.extra ? "the match has water where you have land" : "the match has land where you have water";
@@ -1340,8 +1340,8 @@
       if (share > 0.65) points.push(`Overall the match has less land than home: ${pct(a.missing / (m.n * m.n))} of the square is land for you and water there.`);
       else if (share < 0.35) points.push(`Overall the match has more land than home: ${pct(a.extra / (m.n * m.n))} of the square is water for you and land there.`);
     }
-    if (a.homeCoastMatched >= 0.5 && a.continuity < a.homeCoastMatched * 0.6) points.push(`The matched shoreline comes in short scattered pieces rather than long stretches; the longest connected run is about ${fmtKm(a.longest / 2 * run.template.res / 1000)}.`);
-    else if (a.continuity >= 0.7) points.push(`The matched shoreline runs in long continuous stretches, the longest connected run about ${fmtKm(a.longest / 2 * run.template.res / 1000)}.`);
+    if (a.homeCoastMatched >= 0.5 && a.continuity < a.homeCoastMatched * 0.6) points.push(`The matched shoreline comes in short scattered pieces rather than long stretches; the largest connected piece covers ${pct(a.largestShare)} of your coastline.`);
+    else if (a.continuity >= 0.7) points.push(`The matched shoreline runs in long continuous stretches; the largest connected piece covers ${pct(a.largestShare)} of your coastline.`);
     if (a.matchCoastExplained < a.homeCoastMatched - 0.2) points.push(`The match has extra shoreline of its own: only ${pct(a.matchCoastExplained)} of its coast corresponds to yours, so it is more intricate than home.`);
     else if (a.matchCoastExplained > a.homeCoastMatched + 0.2) points.push(`The match has less shoreline than home: ${pct(a.matchCoastExplained)} of its coast corresponds to yours, but much of yours has no counterpart, so it is a simpler coast.`);
     if (m.flip) points.push("This match is mirrored: the sea sits on the opposite side compared with home.");
@@ -1359,30 +1359,40 @@
     }
     ctx.putImageData(img, 0, 0);
   }
-  const why = { run: null, index: 0 };
-  function openWhy(run, index) {
-    if (!run.template || !run.template.land) { toast("This run predates the analysis view. Run the search again to enable it."); return; }
-    const list = state.run === run ? state.matches : run.matches;
-    const m = list[index];
-    if (!m || !m.window) return;
-    why.run = run; why.index = index;
-    const n = run.template.n;
-    const home = landFrom(run.template.land), win = landFrom(m.window);
-    const a = analyzeMatch(home, win, n, run.params.band_px || 2);
+  const why = { run: null, index: 0, seq: 0 };
+  function renderWhy(run, m, home, win, n, bandPx, res, note) {
+    const a = analyzeMatch(home, win, n, bandPx);
+    const bandKm = Math.round(bandPx * res / 100) / 10;
     const place = m.place || fmtCoords(m.dot_lat, m.dot_lon);
     $("why-title").textContent = `Why #${m.rank} ${place} matched`;
-    $("why-meta").textContent = `score ${m.score.toFixed(3)} · mask ${m.mask_score.toFixed(2)} · coast ${m.coast_score.toFixed(2)} · rotated ${m.theta > 0 ? "+" : ""}${Math.round(m.theta)}°${m.flip ? ", mirrored" : ""}, ${m.side_km.toFixed(0)} km square`;
+    $("why-meta").textContent = `score ${m.score.toFixed(3)} · mask ${m.mask_score.toFixed(2)} · coast ${m.coast_score.toFixed(2)} · rotated ${m.theta > 0 ? "+" : ""}${Math.round(m.theta)}°${m.flip ? ", mirrored" : ""}, ${m.side_km.toFixed(0)} km square${note ? " · " + note : ""}`;
     drawWhy($("why-canvas"), a, n);
     $("why-agree").textContent = `${Math.round(a.agree * 100)}%`;
     $("why-home-coast").textContent = `${Math.round(a.homeCoastMatched * 100)}%`;
     $("why-match-coast").textContent = `${Math.round(a.matchCoastExplained * 100)}%`;
     $("why-score").textContent = m.score.toFixed(3);
     $("why-continuity").textContent = `${Math.round(a.continuity * 100)}%`;
-    $("why-longest").textContent = fmtKm(a.longest / 2 * run.template.res / 1000);
-    const text = whyText(a, { ...m, n }, run);
+    $("why-longest").textContent = `${Math.round(a.largestShare * 100)}% of your coast`;
+    const text = whyText(a, { ...m, n }, run, res, bandKm);
     $("why-summary").textContent = text.summary;
     $("why-points").innerHTML = text.points.map((t) => `<li>${escapeHtml(t)}</li>`).join("");
+  }
+  function openWhy(run, index) {
+    if (!run.template || !run.template.land) { toast("This run predates the analysis view. Run the search again to enable it."); return; }
+    const list = state.run === run ? state.matches : run.matches;
+    const m = list[index];
+    if (!m || !m.window) return;
+    why.run = run; why.index = index;
+    const seq = ++why.seq;
+    const n = run.template.n;
+    renderWhy(run, m, landFrom(run.template.land), landFrom(m.window), n, run.params.band_px || 2, run.template.res, m.vector ? "loading the 250 m windows…" : "");
     $("why-dialog").showModal();
+    if (m.vector) {
+      loadFineOverlay(run, m).then((fine) => {
+        if (why.seq !== seq || !$("why-dialog").open) return;
+        renderWhy(run, m, fine.home, fine.match, fine.n, fine.bandPx, fine.res, `analyzed at ${Math.round(fine.res)} m`);
+      }).catch(() => { if (why.seq === seq) $("why-meta").textContent = $("why-meta").textContent.replace(" · loading the 250 m windows…", " · 1 km windows"); });
+    }
   }
   $("why-close").addEventListener("click", () => $("why-dialog").close());
   $("why-compare").addEventListener("click", () => { $("why-dialog").close(); if (why.run) openCompare(why.run, why.index); });
