@@ -6,7 +6,7 @@
   const LAND = [217, 201, 163], WATER = [158, 202, 225], RED = [214, 39, 40];
 
   const state = {
-    home: null, center: null, centerMode: "home", bbox: null, mode: "place", placeTemplate: null,
+    home: null, center: null, centerMode: "home", bbox: null, mode: "place", placeTemplate: null, homeClimate: null,
     previewTimer: null, previewSeq: 0, template: null,
     run: null, running: false, cancelled: false,
     selected: null, matches: [], markers: new Map(),
@@ -341,6 +341,27 @@
     if (!state.home || !text || /^(Looking up|No address|Click the map|Address lookup)/.test(text)) return null;
     return text;
   }
+  function setHomeClimate(code, name) {
+    state.homeClimate = code || null;
+    const line = $("preview-climate");
+    if (state.mode === "draw" || !code) {
+      line.hidden = true;
+      $("climate-same").textContent = "Same as home";
+      $("climate-group").textContent = "Same group as home";
+    } else {
+      line.textContent = `Climate at the dot: ${code}, ${name || ""}`.replace(/, $/, "");
+      line.hidden = false;
+      $("climate-same").textContent = `Same as home (${code})`;
+      $("climate-group").textContent = `Same group as home (${code[0]})`;
+    }
+    const drawn = state.mode === "draw" || !code;
+    $("climate-same").disabled = drawn;
+    $("climate-group").disabled = drawn;
+    if (drawn && ["same", "group"].includes($("climate").value)) $("climate").value = "";
+  }
+  function climateLabel(code) {
+    return code ? code : "";
+  }
   function scoreLabel(score) {
     if (score >= 0.8) return ["close twin", "chip-strong"];
     if (score >= 0.7) return ["strong", "chip-good"];
@@ -446,6 +467,7 @@
   $("side-km").addEventListener("input", () => { $("side-out").textContent = $("side-km").value; drawSquare(); schedulePreview(); saveSettings(); });
   $("detail-weight").addEventListener("input", () => { $("detail-out").textContent = $("detail-weight").value; });
   for (const id of ["rot-max", "flip", "same-hemisphere", "lat-band", "quality"]) $(id).addEventListener("change", schedulePreview);
+  $("climate").addEventListener("change", schedulePreview);
   document.querySelectorAll('input[name="scale"]').forEach((c) => c.addEventListener("change", schedulePreview));
 
   const DRAW_KEY = "coastline-twin-draw";
@@ -707,12 +729,13 @@
       supersample: 2, band_px: Number($("band-px").value) || 1, detail_weight: Number($("detail-weight").value), variance_floor: 0.3,
       thetas, flips, scales: scales.length ? scales : [1], rot_step, rot_max: rotMax,
       min_score: minScore, coarse_min_score: Math.max(0.25, minScore - 0.15),
-      nms_px: Math.max(3, Math.round(side_m / coarse_res / 2)), per_tile: 12, refine_per_tile: 5,
+      nms_px: Math.max(3, Math.round(side_m / coarse_res / 2)), per_tile: $("climate").value ? 40 : 12, refine_per_tile: 5,
       exclude_km: drawn ? 0 : ($("exclude-km").value === "" ? 2 * sideKm : Number($("exclude-km").value)),
       min_sep_km: sideKm,
       same_hemisphere: $("same-hemisphere").checked,
       lat_band: $("lat-band").value === "" ? null : Number($("lat-band").value),
       bbox: state.bbox, top: Number($("top").value) || 15,
+      climate: $("climate").value, home_climate: drawn ? null : state.homeClimate,
       fine_res, coarse_res, P, N, step_deg: stepDeg, lat_limit: 81,
       quality: thorough ? "thorough" : "fast",
     };
@@ -783,6 +806,17 @@
     const half = t.n * t.res / 2;
     return [(t.dot[0] + half) / t.res, (half - t.dot[1]) / t.res];
   }
+  let climateLegend = null;
+  async function ensureClimateLegend() {
+    if (!climateLegend) { try { climateLegend = await (await fetch("data/koppen.json")).json(); } catch (e) { climateLegend = { classes: {} }; } }
+    return climateLegend;
+  }
+  function nameClimate(matches) {
+    if (!climateLegend) return;
+    const byCode = {};
+    for (const c of Object.values(climateLegend.classes)) byCode[c.code] = c.name;
+    for (const m of matches) if (m.climate && !m.climate_name) m.climate_name = byCode[m.climate] || "";
+  }
   function landFrom(s) { return typeof s === "string" ? Uint8Array.from(s, (ch) => (ch === "1" ? 1 : 0)) : Uint8Array.from(s); }
 
   function schedulePreview() {
@@ -804,6 +838,9 @@
       const t = res.template;
       state.template = { n: t.n, res: t.res, land: landFrom(t.land), dot: t.dot, stats: t.stats };
       if (state.mode === "place") state.placeTemplate = state.template;
+      if (state.mode === "place" && state.home) {
+        pool.call(0, { type: "climate", lat: state.home.lat, lon: state.home.lon }).then((c) => { if (seq === state.previewSeq) setHomeClimate(c.code, c.name); }).catch(() => setHomeClimate(null));
+      } else setHomeClimate(null);
       drawMask($("preview-canvas"), state.template.land, t.n, dotPixel(state.template));
       $("preview-canvas").hidden = false;
       $("preview-empty").hidden = true;
@@ -920,6 +957,8 @@
       await Promise.all(pool.workers.map((_, i) => runWorker(i)));
       if (state.cancelled) return;
       const matches = merge(all, p);
+      await ensureClimateLegend();
+      nameClimate(matches);
       setStatus("Naming places…", `${matches.length} matches, looking up the nearest places`, 100, { cancellable: false });
       for (const m of matches) {
         if (state.cancelled) return;
@@ -930,8 +969,9 @@
       const run = {
         id: `${Date.now()}`, label, started: Date.now(), seconds, tiles: tiles.length, raw: all.length,
         params: { home: p.home, center: p.center, custom: !!p.custom, home_name: homePlace, side_km: p.side_km, scales: p.scales, thetas: p.thetas, flips: p.flips,
-          detail_weight: p.detail_weight, band_px: p.band_px, same_hemisphere: p.same_hemisphere, lat_band: p.lat_band, bbox: p.bbox, quality: p.quality, min_score: p.min_score },
+          detail_weight: p.detail_weight, band_px: p.band_px, climate: p.climate, same_hemisphere: p.same_hemisphere, lat_band: p.lat_band, bbox: p.bbox, quality: p.quality, min_score: p.min_score },
         template: { n: t.n, res: t.res, land: t.land.join(""), dot: t.dot },
+        home_climate: p.home_climate,
         matches: matches.map((m) => ({ ...m, window: m.window.join("") })),
       };
       saveRun(run);
@@ -1012,6 +1052,7 @@
     if (run.params.same_hemisphere) bits.push("same hemisphere");
     if (run.params.lat_band != null) bits.push(`±${run.params.lat_band}° latitude`);
     if (run.params.bbox) bits.push("region limited");
+    if (run.params.climate) bits.push(run.params.climate === "same" ? `climate ${run.home_climate || "same"}` : run.params.climate === "group" ? `climate group ${(run.home_climate || "?")[0]}` : `climate ${run.params.climate}`);
     $("results-meta").textContent = bits.join(" · ");
     const t = run.template ? { n: run.template.n, res: run.template.res, land: landFrom(run.template.land), dot: run.template.dot } : { n: 0, res: 1, land: null, dot: [0, 0] };
     renderMatches();
@@ -1053,7 +1094,7 @@
         <div class="rank">${m.rank}</div>
         <div class="place">${escapeHtml(place)} <span class="chip ${scoreLabel(m.score)[1]}">${scoreLabel(m.score)[0]}</span></div>
         <div class="score">${m.score.toFixed(3)}</div>
-        <div class="detail">rotated ${m.theta > 0 ? "+" : ""}${Math.round(m.theta)}°${flip}, ${m.side_km.toFixed(0)} km square · ${distance} · dot at ${fmtCoords(m.dot_lat, m.dot_lon)}</div>
+        <div class="detail">rotated ${m.theta > 0 ? "+" : ""}${Math.round(m.theta)}°${flip}, ${m.side_km.toFixed(0)} km square · ${distance}${m.climate ? ` · ${m.climate}${m.climate_name ? " " + m.climate_name : ""}` : ""} · dot at ${fmtCoords(m.dot_lat, m.dot_lon)}</div>
         <div class="bars"><span>mask</span><div class="bar"><i style="width:${Math.max(0, m.mask_score) * 100}%"></i></div><span>coast</span><div class="bar"><i style="width:${Math.max(0, m.coast_score) * 100}%"></i></div></div>
         <div class="strip"><div><canvas></canvas><span>home</span></div><div><canvas></canvas><span>match</span></div><div><canvas></canvas><span>overlay</span></div></div>
         <div class="links"><a href="${osm}" target="_blank" rel="noopener">OpenStreetMap</a><a href="${gm}" target="_blank" rel="noopener">Google Maps</a><button type="button" class="ghost small" data-why="${m.rank}">Why?</button><button type="button" class="small" data-compare="${m.rank}">Compare</button></div>`;
@@ -1530,7 +1571,8 @@
     ctx.fillStyle = "#6b7280";
     ctx.font = '400 24px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
     const apart = run.params.home ? ` · ${fmtKm(haversineKm(run.params.home.lat, run.params.home.lon, m.dot_lat, m.dot_lon))} apart` : "";
-    ctx.fillText(`score ${m.score.toFixed(3)} · ${scoreLabel(m.score)[0]} · rotated ${m.theta > 0 ? "+" : ""}${Math.round(m.theta)}°${m.flip ? ", mirrored" : ""}, ${m.side_km.toFixed(0)} km square${apart}`, gap, 140);
+    const climateText = m.climate ? ` · climate ${run.home_climate ? run.home_climate + " → " : ""}${m.climate}` : "";
+    ctx.fillText(`score ${m.score.toFixed(3)} · ${scoreLabel(m.score)[0]} · rotated ${m.theta > 0 ? "+" : ""}${Math.round(m.theta)}°${m.flip ? ", mirrored" : ""}, ${m.side_km.toFixed(0)} km square${apart}${climateText}`, gap, 140);
     const y = header;
     if (run.params.center) {
       const p0 = compare.home.project([run.params.home.lon, run.params.home.lat]);

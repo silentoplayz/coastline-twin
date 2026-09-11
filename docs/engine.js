@@ -356,6 +356,58 @@ function pointAllowed(lat, lon, p) {
   return true;
 }
 
+let CLIMATE = null;
+let CLIMATE_PENDING = null;
+
+async function loadClimate() {
+  if (CLIMATE) return CLIMATE;
+  if (CLIMATE_PENDING) return CLIMATE_PENDING;
+  CLIMATE_PENDING = (async () => {
+    const legend = await (await fetch(BASE + "data/koppen.json")).json();
+    const res = await fetch(BASE + "data/koppen.png");
+    if (!res.ok) throw new Error("could not load the climate map");
+    const bitmap = await createImageBitmap(await res.blob());
+    const w = bitmap.width, h = bitmap.height;
+    const canvas = new OffscreenCanvas(w, h);
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(bitmap, 0, 0);
+    const data = ctx.getImageData(0, 0, w, h).data;
+    const grid = new Uint8Array(w * h);
+    for (let k = 0; k < grid.length; k++) grid[k] = data[k * 4];
+    bitmap.close();
+    CLIMATE = { grid, w, h, legend };
+    return CLIMATE;
+  })();
+  return CLIMATE_PENDING;
+}
+
+function climateAt(lat, lon) {
+  if (!CLIMATE) return null;
+  const { grid, w, h, legend } = CLIMATE;
+  const x0 = Math.min(w - 1, Math.max(0, Math.floor((lon + 180) / 360 * w)));
+  const y0 = Math.min(h - 1, Math.max(0, Math.floor((90 - lat) / 180 * h)));
+  for (let ring = 0; ring <= 6; ring++) {
+    for (let dy = -ring; dy <= ring; dy++) for (let dx = -ring; dx <= ring; dx++) {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) !== ring) continue;
+      const y = y0 + dy;
+      if (y < 0 || y >= h) continue;
+      const x = ((x0 + dx) % w + w) % w;
+      const v = grid[y * w + x];
+      if (v && v !== legend.ocean && legend.classes[v]) return legend.classes[v].code;
+    }
+  }
+  return null;
+}
+
+function climateAllowed(code, p) {
+  const rule = p.climate;
+  if (!rule) return true;
+  if (!code) return false;
+  if (rule === "same") return !!p.home_climate && code === p.home_climate;
+  if (rule === "group") return !!p.home_climate && code[0] === p.home_climate[0];
+  return rule.split(",").map((g) => g.trim()).filter(Boolean).includes(code[0]);
+}
+
 let CTX = null;
 
 async function prepare(p) {
@@ -582,6 +634,8 @@ async function refine(cand) {
   if (!pointAllowed(clat, clon, p)) return null;
   const [qx, qy] = forward(t.dot[0], t.dot[1], best.theta, cand.flip, best.scale);
   const [dlat, dlon] = toLatLon(frame, qx + best.dx, qy + best.dy);
+  const climate = climateAt(dlat, dlon);
+  if (!climateAllowed(climate, p)) return null;
   const h = t.halfM;
   const square = [[-h, -h], [h, -h], [h, h], [-h, h]].map(([x, y]) => {
     const [fx, fy] = forward(x, y, best.theta, cand.flip, best.scale);
@@ -597,7 +651,7 @@ async function refine(cand) {
     center_lat: clat, center_lon: clon, dot_lat: dlat, dot_lon: dlon,
     theta: Math.round(theta * 10) / 10, flip: cand.flip, scale,
     side_km: Math.round(p.side_m * scale / 100) / 10, square,
-    window: Array.from(best.bin), coarse: cand.coarse,
+    window: Array.from(best.bin), coarse: cand.coarse, climate,
   };
 }
 
@@ -625,15 +679,22 @@ self.onmessage = async (ev) => {
         id: msg.id, ok: true,
         template: { n: fine.n, res: fine.resM, land: Array.from(fine.land), dot: fine.dot, stats: fine.stats, coarse_n: coarse.n },
       });
+    } else if (msg.type === "climate") {
+      await loadClimate();
+      const code = climateAt(msg.lat, msg.lon);
+      self.postMessage({ id: msg.id, ok: true, code, name: code ? CLIMATE.legend.classes[Object.keys(CLIMATE.legend.classes).find((k) => CLIMATE.legend.classes[k].code === code)].name : null });
     } else if (msg.type === "tile") {
       const t0 = performance.now();
+      await loadClimate();
       const frame = makeFrame(msg.tile.lat, msg.tile.lon);
       await ensureRegion(...regionOf(frame, CTX.p.N * CTX.p.coarse_res / 2 + 20000));
       const res = processTile(msg.tile);
       const refined = [];
-      for (const cand of res.candidates.slice(0, CTX.p.refine_per_tile)) {
+      for (const cand of res.candidates) {
+        if (CTX.p.climate && !climateAllowed(climateAt(cand.lat, cand.lon), CTX.p)) continue;
         const r = await refine(cand);
         if (r) refined.push(r);
+        if (refined.length >= CTX.p.refine_per_tile) break;
       }
       self.postMessage({ id: msg.id, ok: true, matches: refined, skipped: res.skipped, ms: performance.now() - t0 });
     } else if (msg.type === "raster") {

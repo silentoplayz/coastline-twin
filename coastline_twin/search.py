@@ -41,6 +41,8 @@ class SearchConfig:
     refine_per_tile: int = 6
     rot_step: float = 15.0
     rot_max: float = 45.0
+    climate: str = ""
+    home_climate: Optional[str] = None
     step_deg: float = 9.0
     lat_limit: float = 81.0
 
@@ -105,6 +107,66 @@ def point_allowed(lat, lon, cfg):
 
 
 _STATE = {}
+_CLIMATE = None
+
+
+def load_climate():
+    global _CLIMATE
+    if _CLIMATE is None:
+        import json
+        from pathlib import Path
+
+        from PIL import Image
+
+        root = Path(__file__).resolve().parents[1] / "docs" / "data"
+        legend = json.loads((root / "koppen.json").read_text())
+        grid = np.asarray(Image.open(root / "koppen.png").convert("L"))
+        _CLIMATE = {"grid": grid, "legend": legend}
+    return _CLIMATE
+
+
+def climate_at(lat, lon):
+    c = load_climate()
+    grid, legend = c["grid"], c["legend"]
+    h, w = grid.shape
+    x0 = min(w - 1, max(0, int((lon + 180.0) / 360.0 * w)))
+    y0 = min(h - 1, max(0, int((90.0 - lat) / 180.0 * h)))
+    ocean = legend["ocean"]
+    classes = legend["classes"]
+    for ring in range(7):
+        for dy in range(-ring, ring + 1):
+            for dx in range(-ring, ring + 1):
+                if max(abs(dx), abs(dy)) != ring:
+                    continue
+                y = y0 + dy
+                if y < 0 or y >= h:
+                    continue
+                v = int(grid[y, (x0 + dx) % w])
+                if v and v != ocean and str(v) in classes:
+                    return classes[str(v)]["code"]
+    return None
+
+
+def climate_name(code):
+    if not code:
+        return None
+    for entry in load_climate()["legend"]["classes"].values():
+        if entry["code"] == code:
+            return entry["name"]
+    return None
+
+
+def climate_allowed(code, cfg):
+    rule = cfg.climate
+    if not rule:
+        return True
+    if not code:
+        return False
+    if rule == "same":
+        return bool(cfg.home_climate) and code == cfg.home_climate
+    if rule == "group":
+        return bool(cfg.home_climate) and code[0] == cfg.home_climate[0]
+    return code[0] in [g.strip() for g in rule.split(",") if g.strip()]
 
 
 def _init(template, variants, cfg):
@@ -269,6 +331,9 @@ def refine(template, cfg, cand):
     scale = round(best["scale"], 3)
     qx, qy = forward(template.dot_xy[0], template.dot_xy[1], theta, cand["flip"], scale)
     dot_lat, dot_lon = frame.to_latlon(qx + best["dx"], qy + best["dy"])
+    climate = climate_at(float(dot_lat), float(dot_lon))
+    if not climate_allowed(climate, cfg):
+        return None
     corners = []
     for x, y in template.square_corners(theta, cand["flip"], scale):
         la, lo = frame.to_latlon(x + best["dx"], y + best["dy"])
@@ -292,6 +357,8 @@ def refine(template, cfg, cand):
         "square": corners,
         "coarse": cand["coarse"],
         "tile": cand["tile"],
+        "climate": climate,
+        "climate_name": climate_name(climate),
     }
 
 
@@ -374,6 +441,8 @@ def process_tile(tile):
             best[r, c], best_mask[r, c], best_coast[r, c],
         )
         if cand is None:
+            continue
+        if cfg.climate and not climate_allowed(climate_at(cand["lat"], cand["lon"]), cfg):
             continue
         refined = refine(template, cfg, cand)
         if refined is not None:

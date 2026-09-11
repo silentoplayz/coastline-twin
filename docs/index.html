@@ -103,6 +103,7 @@
             <div><dt>Coast ratio</dt><dd id="stat-coast"></dd></div>
             <div><dt>Tiles</dt><dd id="stat-tiles"></dd></div>
           </dl>
+          <p id="preview-climate" class="muted small" hidden></p>
           <p id="preview-warning" class="warning small" hidden></p>
         </div>
       </section>
@@ -149,6 +150,19 @@
 
       <section class="panel">
         <h2>Filters</h2>
+        <label class="field">Climate
+          <select id="climate">
+            <option value="">Any</option>
+            <option value="same" id="climate-same">Same as home</option>
+            <option value="group" id="climate-group">Same group as home</option>
+            <option value="A">Tropical (A)</option>
+            <option value="B">Arid (B)</option>
+            <option value="C">Temperate (C)</option>
+            <option value="D">Continental (D)</option>
+            <option value="E">Polar (E)</option>
+            <option value="C,D">Temperate or continental</option>
+          </select>
+        </label>
         <label class="check"><input type="checkbox" id="same-hemisphere"> Same hemisphere</label>
         <label class="field">Latitude band <span class="muted small">degrees from your absolute latitude, blank for any</span>
           <input type="number" id="lat-band" min="0" max="90" step="1" placeholder="any">
@@ -185,7 +199,7 @@
         <progress id="status-progress" max="100" value="0"></progress>
         <p id="status-text" class="muted small"></p>
       </section>
-      <p class="notice">Land mask: GLOBE 30 arc-second via global-land-mask. Geocoding: Photon and Nominatim (OpenStreetMap). Map: MapLibre GL with OpenFreeMap vector tiles, OpenTopoMap, Esri imagery, and Mapzen elevation.</p>
+      <p class="notice">Land mask: GLOBE 30 arc-second via global-land-mask. Climate zones: Köppen-Geiger map by Rubel et al. (2017), University of Vienna, via kgcpy. Geocoding: Photon and Nominatim (OpenStreetMap). Map: MapLibre GL with OpenFreeMap vector tiles, OpenTopoMap, Esri imagery, and Mapzen elevation.</p>
     </form>
   </aside>
 

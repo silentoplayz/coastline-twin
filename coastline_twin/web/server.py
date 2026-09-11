@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from ..geo import set_land_source
-from ..search import SearchConfig, make_tiles, tile_may_contain
+from ..search import SearchConfig, climate_at, climate_name, make_tiles, tile_may_contain
 from ..template import Template
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -62,6 +62,7 @@ class PreviewRequest(BaseModel):
     same_hemisphere: bool = False
     lat_band: Optional[float] = None
     bbox: Optional[list[float]] = None
+    climate: str = ""
 
 
 class JobRequest(PreviewRequest):
@@ -213,6 +214,8 @@ def _cli_args(req: PreviewRequest, name: str, out: Path, dry_run: bool):
         args += ["--lat-band", str(job.lat_band)]
     if job.same_hemisphere:
         args.append("--same-hemisphere")
+    if job.climate:
+        args += ["--climate", job.climate]
     if job.bbox:
         if len(job.bbox) != 4:
             raise HTTPException(422, "bbox needs four numbers")
@@ -274,6 +277,8 @@ def preview(req: PreviewRequest):
         "home": home, "center": center, "side_km": req.side_km, "res_m": res_m, "n": template.n,
         "stats": stats, "tiles": tiles, "variants": 7 * 2 * len(scales), "dot_xy_m": template.dot_xy,
         "land": "".join("1" if v else "0" for v in template.land.ravel()), "warnings": warnings,
+        "climate": climate_at(home[0], home[1]) if home else None,
+        "climate_name": climate_name(climate_at(home[0], home[1])) if home else None,
     }
 
 

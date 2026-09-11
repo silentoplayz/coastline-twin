@@ -4,7 +4,7 @@
   const LAND = [217, 201, 163], WATER = [158, 202, 225], RED = [214, 39, 40];
 
   const state = {
-    home: null, center: null, centerMode: "home", bbox: null, mode: "place", placeTemplate: null,
+    home: null, center: null, centerMode: "home", bbox: null, mode: "place", placeTemplate: null, homeClimate: null,
     previewTimer: null, previewSeq: 0, template: null,
     job: null, pollTimer: null, running: false,
     run: null, selected: null, matches: [], markers: new Map(),
@@ -275,6 +275,27 @@
     if (!state.home || !text || /^(Looking up|No address|Click the map|Address lookup)/.test(text)) return null;
     return text;
   }
+  function setHomeClimate(code, name) {
+    state.homeClimate = code || null;
+    const line = $("preview-climate");
+    if (state.mode === "draw" || !code) {
+      line.hidden = true;
+      $("climate-same").textContent = "Same as home";
+      $("climate-group").textContent = "Same group as home";
+    } else {
+      line.textContent = `Climate at the dot: ${code}, ${name || ""}`.replace(/, $/, "");
+      line.hidden = false;
+      $("climate-same").textContent = `Same as home (${code})`;
+      $("climate-group").textContent = `Same group as home (${code[0]})`;
+    }
+    const drawn = state.mode === "draw" || !code;
+    $("climate-same").disabled = drawn;
+    $("climate-group").disabled = drawn;
+    if (drawn && ["same", "group"].includes($("climate").value)) $("climate").value = "";
+  }
+  function climateLabel(code) {
+    return code ? code : "";
+  }
   function scoreLabel(score) {
     if (score >= 0.8) return ["close twin", "chip-strong"];
     if (score >= 0.7) return ["strong", "chip-good"];
@@ -380,6 +401,7 @@
   $("side-km").addEventListener("input", () => { $("side-out").textContent = $("side-km").value; drawSquare(); schedulePreview(); saveSettings(); });
   $("detail-weight").addEventListener("input", () => { $("detail-out").textContent = $("detail-weight").value; });
   for (const id of ["rot-max", "flip", "same-hemisphere", "lat-band"]) $(id).addEventListener("change", schedulePreview);
+  $("climate").addEventListener("change", schedulePreview);
   document.querySelectorAll('input[name="scale"]').forEach((c) => c.addEventListener("change", schedulePreview));
 
   const DRAW_KEY = "coastline-twin-draw";
@@ -657,6 +679,7 @@
       if (seq !== state.previewSeq) return;
       state.template = { n: info.n, res: info.res_m, land: landFrom(info.land), dot: info.dot_xy_m, stats: info.stats };
       if (state.mode === "place") state.placeTemplate = state.template;
+      setHomeClimate(info.climate, info.climate_name);
       drawMask($("preview-canvas"), state.template.land, info.n, dotPixel(state.template));
       $("preview-canvas").hidden = false;
       $("preview-empty").hidden = true;
@@ -714,6 +737,7 @@
       same_hemisphere: $("same-hemisphere").checked,
       lat_band: $("lat-band").value === "" ? null : Number($("lat-band").value),
       bbox: state.bbox,
+      climate: $("climate").value,
       exclude_km: state.mode === "draw" ? 0 : ($("exclude-km").value === "" ? null : Number($("exclude-km").value)),
       workers: $("workers").value === "" ? null : Number($("workers").value),
       label: $("label").value.trim() || null,
@@ -817,7 +841,8 @@
     const center = meta.center ? { lat: meta.center[0], lon: meta.center[1] } : home;
     return {
       id: job.id, label: job.label || job.id, started: (job.started || 0) * 1000, seconds: meta.seconds, tiles: meta.tiles,
-      params: { home, center, custom: !home, home_name: job.params && job.params.home_name, side_km: meta.side_km || job.params.side_km, band_px: meta.band_px, same_hemisphere: filters.same_hemisphere, lat_band: filters.lat_band, bbox: filters.bbox },
+      params: { home, center, custom: !home, home_name: job.params && job.params.home_name, side_km: meta.side_km || job.params.side_km, band_px: meta.band_px, climate: filters.climate, same_hemisphere: filters.same_hemisphere, lat_band: filters.lat_band, bbox: filters.bbox },
+      home_climate: meta.home_climate,
       template: t.land ? { n: t.n, res: t.res_m, land: t.land, dot: t.dot_xy_m } : null,
       matches: job.matches || [],
       files: job.files || null,
@@ -878,6 +903,7 @@
     if (run.params.same_hemisphere) bits.push("same hemisphere");
     if (run.params.lat_band != null) bits.push(`±${run.params.lat_band}° latitude`);
     if (run.params.bbox) bits.push("region limited");
+    if (run.params.climate) bits.push(run.params.climate === "same" ? `climate ${run.home_climate || "same"}` : run.params.climate === "group" ? `climate group ${(run.home_climate || "?")[0]}` : `climate ${run.params.climate}`);
     $("results-meta").textContent = bits.join(" · ");
     const t = run.template ? { n: run.template.n, res: run.template.res, land: landFrom(run.template.land), dot: run.template.dot } : { n: 0, res: 1, land: null, dot: [0, 0] };
     renderMatches();
@@ -919,7 +945,7 @@
         <div class="rank">${m.rank}</div>
         <div class="place">${escapeHtml(place)} <span class="chip ${scoreLabel(m.score)[1]}">${scoreLabel(m.score)[0]}</span></div>
         <div class="score">${m.score.toFixed(3)}</div>
-        <div class="detail">rotated ${m.theta > 0 ? "+" : ""}${Math.round(m.theta)}°${flip}, ${m.side_km.toFixed(0)} km square · ${distance} · dot at ${fmtCoords(m.dot_lat, m.dot_lon)}</div>
+        <div class="detail">rotated ${m.theta > 0 ? "+" : ""}${Math.round(m.theta)}°${flip}, ${m.side_km.toFixed(0)} km square · ${distance}${m.climate ? ` · ${m.climate}${m.climate_name ? " " + m.climate_name : ""}` : ""} · dot at ${fmtCoords(m.dot_lat, m.dot_lon)}</div>
         <div class="bars"><span>mask</span><div class="bar"><i style="width:${Math.max(0, m.mask_score) * 100}%"></i></div><span>coast</span><div class="bar"><i style="width:${Math.max(0, m.coast_score) * 100}%"></i></div></div>
         <div class="strip"><div><canvas></canvas><span>home</span></div><div><canvas></canvas><span>match</span></div><div><canvas></canvas><span>overlay</span></div></div>
         <div class="links"><a href="${osm}" target="_blank" rel="noopener">OpenStreetMap</a><a href="${gm}" target="_blank" rel="noopener">Google Maps</a><button type="button" class="ghost small" data-why="${m.rank}">Why?</button><button type="button" class="small" data-compare="${m.rank}">Compare</button></div>`;
@@ -1344,7 +1370,8 @@
     ctx.fillStyle = "#6b7280";
     ctx.font = '400 24px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
     const apart = run.params.home ? ` · ${fmtKm(haversineKm(run.params.home.lat, run.params.home.lon, m.dot_lat, m.dot_lon))} apart` : "";
-    ctx.fillText(`score ${m.score.toFixed(3)} · ${scoreLabel(m.score)[0]} · rotated ${m.theta > 0 ? "+" : ""}${Math.round(m.theta)}°${m.flip ? ", mirrored" : ""}, ${m.side_km.toFixed(0)} km square${apart}`, gap, 140);
+    const climateText = m.climate ? ` · climate ${run.home_climate ? run.home_climate + " → " : ""}${m.climate}` : "";
+    ctx.fillText(`score ${m.score.toFixed(3)} · ${scoreLabel(m.score)[0]} · rotated ${m.theta > 0 ? "+" : ""}${Math.round(m.theta)}°${m.flip ? ", mirrored" : ""}, ${m.side_km.toFixed(0)} km square${apart}${climateText}`, gap, 140);
     const y = header;
     if (run.params.center) {
       const p0 = compare.home.project([run.params.home.lon, run.params.home.lat]);

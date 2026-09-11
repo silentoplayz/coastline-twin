@@ -128,8 +128,10 @@ What the page does:
   where you can reopen or delete it. A run that is still going when you reload
   the page reattaches automatically.
 
-Geocoding goes to Nominatim first and falls back to Photon, both OpenStreetMap
-based, both free for light personal use. The map is MapLibre GL JS on
+Climate classes come from the Köppen-Geiger map by Rubel, Brugger, Haslinger
+and Auer (2017) at the University of Vienna, shipped at 5 arc-minutes via the
+kgcpy package. Geocoding goes to Nominatim first and falls back to Photon, both
+OpenStreetMap based, both free for light personal use. The map is MapLibre GL JS on
 OpenFreeMap vector tiles. Everything else runs locally. The local app and the
 website share `docs/geo.js` and `docs/style.css`, which the server serves
 under `/static`.
@@ -157,6 +159,7 @@ Useful flags:
 | `--scales 0.8,1,1.25` | Add the smaller window back |
 | `--lat-band 8` | Only accept matches within 8 degrees of your absolute latitude |
 | `--same-hemisphere` | Keep the seasons the same |
+| `--climate same` | Only Köppen-Geiger classes equal to home's; also `group`, or letters like `C,D` |
 | `--bbox LATMIN LONMIN LATMAX LONMAX` | Restrict the search to one region |
 | `--detail-weight 0.7` | Lean harder on coastline detail than on the land mask |
 | `--band-px 1` | Count only pixels within 1 km of the shoreline as coast, stricter than the default 2 |
@@ -211,10 +214,11 @@ Work through these in order.
 6. **Leave the sizes at 1x and 1.25x.** Smaller windows have fewer pixels and
    win by chance more often. Add 0.65x or 0.8x only when you are looking for
    a smaller twin on purpose, and read those scores with suspicion.
-7. **Filter for the life you want, then rank by shape.** Same hemisphere keeps
-   the seasons. A latitude band of 5 to 10 degrees roughly keeps the climate.
-   A region limit finds the best twin inside a country you would actually
-   move to. Shape knows nothing about any of this.
+7. **Filter for the life you want, then rank by shape.** The Climate filter
+   keeps matches in your Köppen-Geiger class, in its group (temperate,
+   continental, and so on), or in groups you pick. Same hemisphere keeps the
+   seasons. A region limit finds the best twin inside a country you would
+   actually move to. Shape knows nothing about any of this.
 8. **Read the two score bars, not just the total.** A high mask bar with a
    low coast bar means the land is in the right place but the shoreline
    differs. A high coast bar is the one that makes the Compare view line up.

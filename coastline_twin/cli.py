@@ -8,7 +8,7 @@ import numpy as np
 
 from tqdm import tqdm
 
-from .search import SearchConfig, make_tiles, run_search, tile_may_contain
+from .search import SearchConfig, climate_at, climate_name, make_tiles, run_search, tile_may_contain
 from .template import Template, rotation_list
 
 
@@ -36,6 +36,7 @@ def build_parser():
     p.add_argument("--bbox", nargs=4, type=float, metavar=("LATMIN", "LONMIN", "LATMAX", "LONMAX"), help="only search inside this box")
     p.add_argument("--lat-band", type=float, help="only accept matches within this many degrees of your absolute latitude")
     p.add_argument("--same-hemisphere", action="store_true", help="only accept matches in your hemisphere")
+    p.add_argument("--climate", default="", help="same, group, or Köppen group letters like C,D; empty for any")
     p.add_argument("--workers", type=int, help="processes, default min(cpu-2, 12)")
     p.add_argument("--out", default="results", help="output root")
     p.add_argument("--name", help="run name, default timestamp")
@@ -93,6 +94,8 @@ def main(argv=None):
         detail_weight=args.detail_weight,
         rot_step=args.rot_step,
         rot_max=args.rot_max,
+        climate=args.climate,
+        home_climate=climate_at(home[0], home[1]) if home else None,
     )
 
     run_name = args.name or time.strftime("%Y%m%d-%H%M%S")
@@ -117,6 +120,8 @@ def main(argv=None):
                 "dot_xy_m": template.dot_xy,
                 "n": template.n,
                 "land": "".join("1" if v else "0" for v in template.land.ravel()),
+                "climate": climate_at(home[0], home[1]) if home else None,
+                "climate_name": climate_name(climate_at(home[0], home[1])) if home else None,
             }
         )
     )
@@ -180,7 +185,9 @@ def main(argv=None):
             "exclude_km": cfg.exclude_km,
             "min_sep_km": cfg.min_sep_km,
             "min_score": cfg.min_score,
+            "climate": cfg.climate,
         },
+        "home_climate": cfg.home_climate,
     }
     report.write_json(template, matches, meta, out_dir / "matches.json")
     report.write_geojson(template, matches, out_dir / "matches.geojson")
