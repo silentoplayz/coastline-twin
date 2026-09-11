@@ -8,7 +8,7 @@ import numpy as np
 
 from tqdm import tqdm
 
-from .search import SearchConfig, climate_at, climate_name, make_tiles, merge, run_search, tile_may_contain, top_share
+from .search import SearchConfig, climate_at, climate_name, make_tiles, merge, run_search, tile_may_contain, top_share, COMMON_SCORE
 from .template import Template, rotation_list
 
 
@@ -227,6 +227,8 @@ def main(argv=None):
     report.render_sheet(template, matches, out_dir / "matches.png")
     report.write_html(template, matches, meta, out_dir / "report.html", "matches.png", "template.png")
     print(f"Searched {n_tiles} tiles in {elapsed:.0f} s, {n_candidates} raw peaks, {scored['n']:,} placements scored.")
+    if scored.get("common_pct") is not None:
+        print(f"Common shape: {scored['common_pct']}% of all placements score {COMMON_SCORE} or better, so close twins are easy to find.")
     report.print_table(matches)
     print(f"Report: {out_dir / 'report.html'}")
     return 0

@@ -180,7 +180,10 @@ def scored_note(meta):
     scored = meta.get("scored") or {}
     if not scored.get("n"):
         return ""
-    return f" Every local maximum of the score surface counts as a placement: {scored['n']:,} were scored, and each match's Top column says how far up that list its raw score sits."
+    note = f" Every local maximum of the score surface counts as a placement: {scored['n']:,} were scored, and each match's Top column says how far up that list its raw score sits."
+    if scored.get("common_pct") is not None:
+        note += f" This is a common shape: {scored['common_pct']}% of all placements score 0.7 or better, so close twins are easy to find and the top of the list is crowded."
+    return note
 
 
 def print_table(matches):

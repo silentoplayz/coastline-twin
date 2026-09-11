@@ -275,6 +275,11 @@ across squares: a marsh coast that tops out at 0.65 and a smooth bay that
 reaches 0.85 can both be in the top 0.1% of their runs. The JSON carries it as
 `top_pct` on each match and the histogram as `meta.scored`.
 
+The same histogram flags a common shape. A straight beach has hundreds of
+near-perfect twins, so every match reads "close twin" and the labels stop
+separating anything. When at least 5 percent of all placements score 0.7 or
+better, the results header, the Why view, and the CLI say so with the share.
+
 Smaller scales win more often than they should, because a 0.8x window has
 fewer pixels and is easier to correlate by chance. The apps and the command
 line therefore leave 0.8x out by default. Pass `--scales 0.8,1,1.25` to add

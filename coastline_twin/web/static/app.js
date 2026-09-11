@@ -316,6 +316,15 @@
     for (let i = b + 1; i < HIST_BINS; i++) above += scored.hist[i];
     return 100 * Math.min(scored.n, above + 1) / scored.n;
   }
+  const COMMON_SCORE = 0.7, COMMON_MIN_PCT = 5;
+  function commonShare(run) {
+    const scored = run && run.scored;
+    if (!scored || !scored.n) return null;
+    let above = 0;
+    for (let i = Math.round((COMMON_SCORE + 1) / HIST_STEP); i < HIST_BINS; i++) above += scored.hist[i];
+    const pct = 100 * above / scored.n;
+    return pct >= COMMON_MIN_PCT ? Math.round(pct) : null;
+  }
   function fmtTop(pct) {
     if (pct == null) return "";
     if (pct >= 10) return `top ${Math.round(pct)}%`;
@@ -982,6 +991,7 @@
     if (run.params.hemisphere_flip) bits.push("north–south mirrors");
     if (run.params.bbox) bits.push("region limited");
     if (run.scored && run.scored.n) bits.push(`${run.scored.n.toLocaleString()} placements scored`);
+    if (commonShare(run) != null) bits.push(`common shape: ${commonShare(run)}% of all placements score ${COMMON_SCORE} or better`);
     if (run.params.climate) bits.push(run.params.climate === "same" ? `climate ${run.home_climate || "same"}` : run.params.climate === "group" ? `climate group ${(run.home_climate || "?")[0]}` : `climate ${run.params.climate}`);
     $("results-meta").textContent = bits.join(" · ");
     const t = run.template ? { n: run.template.n, res: run.template.res, land: landFrom(run.template.land), dot: run.template.dot } : { n: 0, res: 1, land: null, dot: [0, 0] };
@@ -1205,6 +1215,7 @@
     if (a.matchCoastExplained < a.homeCoastMatched - 0.2) points.push(`The match has extra shoreline of its own: only ${pct(a.matchCoastExplained)} of its coast corresponds to yours, so it is more intricate than home.`);
     else if (a.matchCoastExplained > a.homeCoastMatched + 0.2) points.push(`The match has less shoreline than home: ${pct(a.matchCoastExplained)} of its coast corresponds to yours, but much of yours has no counterpart, so it is a simpler coast.`);
     if (topShare(run, m) != null) points.push(`Among the ${run.scored.n.toLocaleString()} coastal placements this run scored, its raw score sits in the ${fmtTop(topShare(run, m))}.`);
+    if (commonShare(run) != null) points.push(`Yours is a common shape: ${commonShare(run)}% of all placements in this run score ${COMMON_SCORE} or better, so close twins are easy to find and the top of the list is crowded.`);
     if (m.mirror === "ns") points.push("This match is mirrored north to south: the sea sits on the same side as home but the sun comes from the other direction, as across the equator.");
     else if (m.flip) points.push("This match is mirrored: the sea sits on the opposite side compared with home.");
     if (Math.abs(thetaOf(m)) >= 30) points.push(`It is rotated ${Math.round(Math.abs(thetaOf(m)))} degrees, so the coast faces a different direction than yours.`);

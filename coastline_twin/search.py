@@ -487,6 +487,19 @@ def top_share(scored, raw_score):
     return round(100.0 * min(n, above + 1) / n, 3)
 
 
+COMMON_SCORE = 0.7
+COMMON_MIN_PCT = 5.0
+
+
+def common_share(scored):
+    """Percent of scored placements at COMMON_SCORE or better, or None when the shape is not common."""
+    if not scored or not scored.get("n"):
+        return None
+    above = sum(scored["hist"][int(round((COMMON_SCORE + 1.0) / HIST_STEP)):])
+    pct = 100.0 * above / scored["n"]
+    return round(pct) if pct >= COMMON_MIN_PCT else None
+
+
 def merge(candidates, cfg, top=None):
     candidates = sorted(candidates, key=lambda c: c["score"], reverse=True)
     kept = []
@@ -534,4 +547,5 @@ def run_search(template, variants, cfg, progress=None, on_candidates=None):
                 if on_candidates and found:
                     on_candidates(candidates)
     scored = {"n": int(hist.sum()), "hist": [int(v) for v in hist]}
+    scored["common_pct"] = common_share(scored)
     return merge(candidates, cfg, top=max(cfg.top, cfg.vector_top)), len(tiles), len(candidates), scored
