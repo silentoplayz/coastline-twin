@@ -68,7 +68,12 @@ What the page does:
   map imagery with the match rotated, mirrored, and scaled to line up. Sort
   the list by total, coast, or mask score, by distance from home, or by least
   rotation, and hide mirrored matches; the pins and Compare follow the same
-  order. The other tabs hold the contact sheet and the downloadable files.
+  order. Why? opens a difference map of the two squares with plain-language
+  findings: how much of your coastline the match's shoreline follows, where
+  the two agree best, where they disagree and in which direction. In Compare
+  the home coastline is green where the match's shoreline is within the band
+  and red where it isn't. The other tabs hold the contact sheet and the
+  downloadable files.
 - **Layers.** The Layers button on the map picks a basemap and overlays. Basemaps:
   the five OpenFreeMap vector styles (Light, Dark, Streets, Bright, Fiord),
   OpenTopoMap, and Esri satellite imagery, none of which need an API key. Overlays: hillshade and 3D terrain from Mapzen elevation

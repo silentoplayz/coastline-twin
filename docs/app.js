@@ -868,7 +868,7 @@
         <div class="detail">rotated ${m.theta > 0 ? "+" : ""}${Math.round(m.theta)}°${flip}, ${m.side_km.toFixed(0)} km square · ${distance} from home · dot at ${fmtCoords(m.dot_lat, m.dot_lon)}</div>
         <div class="bars"><span>mask</span><div class="bar"><i style="width:${Math.max(0, m.mask_score) * 100}%"></i></div><span>coast</span><div class="bar"><i style="width:${Math.max(0, m.coast_score) * 100}%"></i></div></div>
         <div class="strip"><div><canvas></canvas><span>home</span></div><div><canvas></canvas><span>match</span></div><div><canvas></canvas><span>overlay</span></div></div>
-        <div class="links"><a href="${osm}" target="_blank" rel="noopener">OpenStreetMap</a><a href="${gm}" target="_blank" rel="noopener">Google Maps</a><button type="button" class="small" data-compare="${m.rank}">Compare</button></div>`;
+        <div class="links"><a href="${osm}" target="_blank" rel="noopener">OpenStreetMap</a><a href="${gm}" target="_blank" rel="noopener">Google Maps</a><button type="button" class="ghost small" data-why="${m.rank}">Why?</button><button type="button" class="small" data-compare="${m.rank}">Compare</button></div>`;
       const win = t.land && m.window ? landFrom(m.window) : null;
       const cv = li.querySelectorAll("canvas");
       if (win) {
@@ -880,6 +880,7 @@
       }
       li.addEventListener("click", (e) => { if (e.target.tagName !== "A" && e.target.tagName !== "BUTTON") selectMatch(m.rank, true); });
       li.querySelector("[data-compare]").addEventListener("click", () => openCompare(run, index));
+      li.querySelector("[data-why]").addEventListener("click", () => openWhy(run, index));
       list.appendChild(li);
 
       const row = document.createElement("div");
@@ -1003,6 +1004,111 @@
   }
   $("results-close").addEventListener("click", () => { $("results").hidden = true; clearResults(); requestAnimationFrame(() => map.resize()); });
 
+  function bandOf(binary, n, width) {
+    const coast = new Uint8Array(n * n);
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
+      const k = r * n + c;
+      if (r + 1 < n && binary[k] !== binary[k + n]) { coast[k] = 1; coast[k + n] = 1; }
+      if (c + 1 < n && binary[k] !== binary[k + 1]) { coast[k] = 1; coast[k + 1] = 1; }
+    }
+    let cur = coast;
+    for (let w = 0; w < width; w++) {
+      const next = new Uint8Array(cur);
+      for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
+        if (!cur[r * n + c]) continue;
+        for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
+          const rr = r + dr, cc = c + dc;
+          if (rr >= 0 && rr < n && cc >= 0 && cc < n) next[rr * n + cc] = 1;
+        }
+      }
+      cur = next;
+    }
+    return cur;
+  }
+  const DIRS = [["north-west", "north", "north-east"], ["west", "middle", "east"], ["south-west", "south", "south-east"]];
+  function analyzeMatch(home, win, n, bandPx) {
+    const homeCoast = bandOf(home, n, 0), matchCoast = bandOf(win, n, 0);
+    const homeBand = bandOf(home, n, bandPx), matchBand = bandOf(win, n, bandPx);
+    const cls = new Uint8Array(n * n);
+    let agree = 0, hc = 0, hcMatched = 0, mc = 0, mcMatched = 0, missing = 0, extra = 0;
+    const cells = Array.from({ length: 9 }, () => ({ total: 0, bad: 0, missing: 0, extra: 0, coast: 0, coastOk: 0 }));
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
+      const k = r * n + c;
+      const cell = cells[Math.min(2, Math.floor(3 * r / n)) * 3 + Math.min(2, Math.floor(3 * c / n))];
+      cell.total++;
+      if (home[k] === win[k]) { agree++; cls[k] = home[k] ? 1 : 0; }
+      else if (home[k]) { missing++; cls[k] = 2; cell.bad++; cell.missing++; }
+      else { extra++; cls[k] = 3; cell.bad++; cell.extra++; }
+      if (homeCoast[k]) { hc++; cell.coast++; if (matchBand[k]) { hcMatched++; cell.coastOk++; cls[k] = 4; } else cls[k] = 5; }
+      if (matchCoast[k]) { mc++; if (homeBand[k]) mcMatched++; }
+    }
+    return { cls, agree: agree / (n * n), homeCoastMatched: hc ? hcMatched / hc : 0, matchCoastExplained: mc ? mcMatched / mc : 0, missing, extra, cells, homeBand, matchBand };
+  }
+  function whyText(a, m, run) {
+    const pct = (v) => `${Math.round(v * 100)}%`;
+    const points = [];
+    const avgBad = a.cells.reduce((s, c) => s + c.bad / Math.max(1, c.total), 0) / 9;
+    const ranked = a.cells.map((c, i) => ({ i, frac: c.bad / Math.max(1, c.total), missing: c.missing, extra: c.extra })).sort((x, y) => y.frac - x.frac);
+    const worst = ranked[0];
+    const best = a.cells.map((c, i) => ({ i, ok: c.coast ? c.coastOk / c.coast : -1, coast: c.coast })).filter((c) => c.coast >= 5).sort((x, y) => y.ok - x.ok)[0];
+    const name = (i) => DIRS[Math.floor(i / 3)][i % 3];
+    let summary;
+    if (a.homeCoastMatched >= 0.75) summary = `A close twin: ${pct(a.homeCoastMatched)} of your coastline has the match's shoreline within ${run.params.band_px || 2} km, and the land and water agree on ${pct(a.agree)} of the square.`;
+    else if (a.homeCoastMatched >= 0.5) summary = `The broad shape agrees on ${pct(a.agree)} of the square, and ${pct(a.homeCoastMatched)} of your coastline has the match's shoreline within ${run.params.band_px || 2} km. The rest runs a different course.`;
+    else summary = `The land and water agree on ${pct(a.agree)} of the square, but only ${pct(a.homeCoastMatched)} of your coastline has the match's shoreline within ${run.params.band_px || 2} km. This is a match of outline, not of detail.`;
+    if (best && best.ok > 0.6) points.push(`The coastlines line up best in the ${name(best.i)} of the square, where ${pct(best.ok)} of your shoreline is matched.`);
+    if (worst && worst.frac > Math.max(0.08, 1.5 * avgBad)) {
+      const kind = worst.missing >= worst.extra ? "the match has water where you have land" : "the match has land where you have water";
+      points.push(`The biggest disagreement is in the ${name(worst.i)}, where ${kind} on ${pct(worst.frac)} of the pixels.`);
+    }
+    if (a.missing + a.extra > 0) {
+      const share = a.missing / (a.missing + a.extra);
+      if (share > 0.65) points.push(`Overall the match has less land than home: ${pct(a.missing / (m.n * m.n))} of the square is land for you and water there.`);
+      else if (share < 0.35) points.push(`Overall the match has more land than home: ${pct(a.extra / (m.n * m.n))} of the square is water for you and land there.`);
+    }
+    if (a.matchCoastExplained < a.homeCoastMatched - 0.2) points.push(`The match has extra shoreline of its own: only ${pct(a.matchCoastExplained)} of its coast corresponds to yours, so it is more intricate than home.`);
+    else if (a.matchCoastExplained > a.homeCoastMatched + 0.2) points.push(`The match has less shoreline than home: ${pct(a.matchCoastExplained)} of its coast corresponds to yours, but much of yours has no counterpart, so it is a simpler coast.`);
+    if (m.flip) points.push("This match is mirrored: the sea sits on the opposite side compared with home.");
+    if (Math.abs(m.theta) >= 30) points.push(`It is rotated ${Math.round(Math.abs(m.theta))} degrees, so the coast faces a different direction than yours.`);
+    return { summary, points };
+  }
+  function drawWhy(canvas, a, n) {
+    canvas.width = n; canvas.height = n;
+    const ctx = canvas.getContext("2d");
+    const img = ctx.createImageData(n, n);
+    const colors = [WATER, LAND, [230, 162, 60], [142, 107, 191], [44, 160, 44], [214, 39, 40]];
+    for (let k = 0; k < n * n; k++) {
+      const col = colors[a.cls[k]];
+      img.data[k * 4] = col[0]; img.data[k * 4 + 1] = col[1]; img.data[k * 4 + 2] = col[2]; img.data[k * 4 + 3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+  }
+  const why = { run: null, index: 0 };
+  function openWhy(run, index) {
+    if (!run.template || !run.template.land) { toast("This run predates the analysis view. Run the search again to enable it."); return; }
+    const list = state.run === run ? state.matches : run.matches;
+    const m = list[index];
+    if (!m || !m.window) return;
+    why.run = run; why.index = index;
+    const n = run.template.n;
+    const home = landFrom(run.template.land), win = landFrom(m.window);
+    const a = analyzeMatch(home, win, n, run.params.band_px || 2);
+    const place = m.place || fmtCoords(m.dot_lat, m.dot_lon);
+    $("why-title").textContent = `Why #${m.rank} ${place} matched`;
+    $("why-meta").textContent = `score ${m.score.toFixed(3)} · mask ${m.mask_score.toFixed(2)} · coast ${m.coast_score.toFixed(2)} · rotated ${m.theta > 0 ? "+" : ""}${Math.round(m.theta)}°${m.flip ? ", mirrored" : ""}, ${m.side_km.toFixed(0)} km square`;
+    drawWhy($("why-canvas"), a, n);
+    $("why-agree").textContent = `${Math.round(a.agree * 100)}%`;
+    $("why-home-coast").textContent = `${Math.round(a.homeCoastMatched * 100)}%`;
+    $("why-match-coast").textContent = `${Math.round(a.matchCoastExplained * 100)}%`;
+    $("why-score").textContent = m.score.toFixed(3);
+    const text = whyText(a, { ...m, n }, run);
+    $("why-summary").textContent = text.summary;
+    $("why-points").innerHTML = text.points.map((t) => `<li>${escapeHtml(t)}</li>`).join("");
+    $("why-dialog").showModal();
+  }
+  $("why-close").addEventListener("click", () => $("why-dialog").close());
+  $("why-compare").addEventListener("click", () => { $("why-dialog").close(); if (why.run) openCompare(why.run, why.index); });
+
   const compare = { home: null, match: null, run: null, list: null, index: 0, dots: [] };
   function coastSegments(land, n, res) {
     const half = n * res / 2;
@@ -1034,11 +1140,12 @@
     for (const [id, paint] of [
       ["square", { "line-color": "#d62728", "line-width": 2, "line-dasharray": [3, 2] }],
       ["coast", { "line-color": "#d62728", "line-width": 2.5, "line-opacity": 0.9 }],
+      ["coast-ok", { "line-color": "#2ca02c", "line-width": 2.5, "line-opacity": 0.9 }],
     ]) {
       if (!m.getSource(id)) m.addSource(id, { type: "geojson", data: m.__data && m.__data[id] || { type: "FeatureCollection", features: [] } });
       if (!m.getLayer(id)) m.addLayer({ id, type: "line", source: id, paint });
     }
-    m.setLayoutProperty("coast", "visibility", $("compare-coast").checked ? "visible" : "none");
+    for (const id of ["coast", "coast-ok"]) m.setLayoutProperty(id, "visibility", $("compare-coast").checked ? "visible" : "none");
     setLabels(m, m.__labels !== false);
   }
   function ensureCompareMaps() {
@@ -1077,13 +1184,25 @@
     const matchFrame = makeFrame(m.center_lat, m.center_lon);
     const segs = coastSegments(land, t.n, t.res);
     const toLonLat = (frame, x, y) => { const [la, lo] = toLatLon(frame, x, y); return [lo, la]; };
-    const homeCoast = { type: "Feature", geometry: { type: "MultiLineString", coordinates: segs.map((seg) => seg.map(([x, y]) => toLonLat(homeFrame, x, y))) } };
-    const matchCoast = { type: "Feature", geometry: { type: "MultiLineString", coordinates: segs.map((seg) => seg.map(([x, y]) => { const [qx, qy] = forward(x, y, m.theta, m.flip, m.scale); return toLonLat(matchFrame, qx, qy); })) } };
+    const win = m.window ? landFrom(m.window) : null;
+    const matchBand = win ? bandOf(win, t.n, run.params.band_px || 2) : null;
+    const half = t.n * t.res / 2;
+    const segOk = (seg) => {
+      if (!matchBand) return false;
+      const mx = (seg[0][0] + seg[1][0]) / 2, my = (seg[0][1] + seg[1][1]) / 2;
+      const c = Math.min(t.n - 1, Math.max(0, Math.floor((mx + half) / t.res))), r = Math.min(t.n - 1, Math.max(0, Math.floor((half - my) / t.res)));
+      const c2 = Math.min(t.n - 1, Math.max(0, Math.round((mx + half) / t.res) - 1)), r2 = Math.min(t.n - 1, Math.max(0, Math.round((half - my) / t.res) - 1));
+      return !!(matchBand[r * t.n + c] || matchBand[r2 * t.n + c2] || matchBand[r * t.n + c2] || matchBand[r2 * t.n + c]);
+    };
+    const okSegs = segs.filter(segOk), badSegs = segs.filter((sg) => !segOk(sg));
+    const lines = (list, frame, transform) => ({ type: "Feature", geometry: { type: "MultiLineString", coordinates: list.map((seg) => seg.map(([x, y]) => { const [qx, qy] = transform ? forward(x, y, m.theta, m.flip, m.scale) : [x, y]; return toLonLat(frame, qx, qy); })) } });
+    const homeCoast = lines(badSegs, homeFrame, false), homeCoastOk = lines(okSegs, homeFrame, false);
+    const matchCoast = lines(badSegs, matchFrame, true), matchCoastOk = lines(okSegs, matchFrame, true);
     const h = t.n * t.res / 2;
     const homeSquare = polygonFeature([[-h, -h], [h, -h], [h, h], [-h, h], [-h, -h]].map(([x, y]) => toLonLat(homeFrame, x, y)));
     const matchSquare = polygonFeature(m.square);
-    setCompareData(compare.home, { square: { type: "FeatureCollection", features: [homeSquare] }, coast: { type: "FeatureCollection", features: [homeCoast] } });
-    setCompareData(compare.match, { square: { type: "FeatureCollection", features: [matchSquare] }, coast: { type: "FeatureCollection", features: [matchCoast] } });
+    setCompareData(compare.home, { square: { type: "FeatureCollection", features: [homeSquare] }, coast: { type: "FeatureCollection", features: [homeCoast] }, "coast-ok": { type: "FeatureCollection", features: [homeCoastOk] } });
+    setCompareData(compare.match, { square: { type: "FeatureCollection", features: [matchSquare] }, coast: { type: "FeatureCollection", features: [matchCoast] }, "coast-ok": { type: "FeatureCollection", features: [matchCoastOk] } });
     for (const d of compare.dots) d.remove();
     compare.dots = [
       makePin("pin-dot").setLngLat([run.params.home.lon, run.params.home.lat]).addTo(compare.home),
@@ -1101,7 +1220,7 @@
     compare.match.__labels = labels && !m.flip;
     setLabels(compare.home, compare.home.__labels);
     setLabels(compare.match, compare.match.__labels);
-    for (const cm of [compare.home, compare.match]) if (cm.getLayer("coast")) cm.setLayoutProperty("coast", "visibility", $("compare-coast").checked ? "visible" : "none");
+    for (const cm of [compare.home, compare.match]) for (const id of ["coast", "coast-ok"]) if (cm.getLayer(id)) cm.setLayoutProperty(id, "visibility", $("compare-coast").checked ? "visible" : "none");
     const place = m.place || fmtCoords(m.dot_lat, m.dot_lon);
     $("compare-title").textContent = `#${m.rank} ${place}`;
     $("compare-meta").textContent = `score ${m.score.toFixed(3)} · rotated ${m.theta > 0 ? "+" : ""}${Math.round(m.theta)}°${m.flip ? ", mirrored" : ""}, ${m.side_km.toFixed(0)} km square · ${fmtKm(haversineKm(run.params.home.lat, run.params.home.lon, m.dot_lat, m.dot_lon))} from home · dot lands at ${fmtCoords(m.dot_lat, m.dot_lon)}`;

@@ -336,3 +336,15 @@ dialog.tips { width: min(720px, 92vw); max-height: 88vh; overflow-y: auto; }
 .results-tools select { width: auto; padding: 4px 6px; font-size: 12px; margin-left: 4px; }
 .results-tools .check { margin: 0; }
 .results-tools #results-count { margin-left: auto; }
+
+dialog.why { width: min(960px, 94vw); max-height: 90vh; overflow-y: auto; }
+.why-body { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(260px, 1fr); gap: 18px; }
+.why-canvas-wrap canvas { width: 100%; aspect-ratio: 1; image-rendering: pixelated; border-radius: 8px; border: 1px solid var(--border); display: block; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 8px; font-size: 12px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 5px; }
+.legend i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; border: 1px solid rgb(0 0 0 / .15); }
+.why-stats { grid-template-columns: repeat(2, 1fr); }
+.why-text p { font-size: 14px; line-height: 1.5; margin-top: 12px; }
+.why-text ul { margin: 8px 0 0; padding-left: 20px; font-size: 13px; line-height: 1.5; }
+.why-text li { margin-bottom: 6px; }
+@media (max-width: 760px) { .why-body { grid-template-columns: 1fr; } }
