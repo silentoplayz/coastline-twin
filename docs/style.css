@@ -328,6 +328,7 @@ dialog.tips { width: min(720px, 92vw); max-height: 88vh; overflow-y: auto; }
 
 .layers-control { position: absolute; top: 12px; right: 12px; z-index: 500; }
 .layers-control > button { background: var(--panel); box-shadow: var(--shadow); }
+.layers-hint { margin: 2px 0 6px 22px; line-height: 1.35; }
 .layers-panel { position: absolute; right: 0; top: 40px; width: 230px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); padding: 10px 12px; font-size: 13px; }
 .layers-group { margin-bottom: 8px; }
 .layers-group b { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 4px; }

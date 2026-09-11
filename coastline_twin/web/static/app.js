@@ -64,7 +64,7 @@
     $("map").innerHTML = '<div class="preview-empty" style="padding:40px">This browser has no WebGL, so the map cannot be drawn. Searching still works: type an address or coordinates on the left.</div>';
     $("map-hint").hidden = true;
   }
-  if (webgl) map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), "top-left");
+  if (webgl) map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-left");
   if (webgl && maplibregl.GlobeControl) map.addControl(new maplibregl.GlobeControl(), "top-left");
   map.on("style.load", () => {
     map.setProjection({ type: "globe" });
@@ -122,6 +122,20 @@
     if (layerPrefs.mask) refreshMask();
     applyTiles();
   }
+  function terrainToggled(on) {
+    $("terrain-hint").hidden = !on;
+    if (!webgl) return;
+    if (on) {
+      if (!layerPrefs.hillshade && !layerPrefs.hillshade_offered) {
+        layerPrefs.hillshade = true;
+        layerPrefs.hillshade_offered = true;
+        $("layer-hillshade").checked = true;
+      }
+      if (map.getZoom() >= 8 && map.getPitch() < 30) map.easeTo({ pitch: 55, duration: 800 });
+    } else if (map.getPitch() > 0) {
+      map.easeTo({ pitch: 0, duration: 600 });
+    }
+  }
   function buildLayersPanel() {
     const group = $("basemap-options");
     if (!group) return;
@@ -136,8 +150,9 @@
     for (const [id, key] of [["layer-hillshade", "hillshade"], ["layer-terrain", "terrain"], ["layer-mask", "mask"]]) {
       const el = $(id);
       el.checked = !!layerPrefs[key];
-      el.addEventListener("change", () => { layerPrefs[key] = el.checked; applyLayerPrefs(); });
+      el.addEventListener("change", () => { layerPrefs[key] = el.checked; if (key === "terrain") terrainToggled(el.checked); applyLayerPrefs(); });
     }
+    $("terrain-hint").hidden = !layerPrefs.terrain;
     const button = $("layers-button"), panel = $("layers-panel");
     button.addEventListener("click", (e) => { e.stopPropagation(); panel.hidden = !panel.hidden; button.setAttribute("aria-expanded", String(!panel.hidden)); });
     panel.addEventListener("click", (e) => e.stopPropagation());
