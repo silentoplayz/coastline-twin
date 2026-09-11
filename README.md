@@ -6,6 +6,12 @@ home dot lands on the best overlay is where you "move" to.
 
 **Try it in your browser: https://silentoplayz.github.io/coastline-twin/**
 
+![Monterey Bay compared with the Gulf of Taranto in Italy, side by side on satellite imagery, with the home coastline drawn green where the match follows it](docs/images/compare-satellite.jpg)
+
+*Monterey Bay, California, and its twin: the Gulf of Taranto in Calabria,
+mirrored and turned 45 degrees. Green is the home coastline where the match's
+shoreline runs within 2 km of it.*
+
 The website needs no server. The land mask ships as 1.3 MB of 1-bit PNG tiles,
 the matcher runs in Web Workers, and a full-planet search takes about two
 minutes on a laptop. Results land on a MapLibre globe, and every match has a
@@ -14,6 +20,26 @@ the match rotated, mirrored, and scaled so the coastlines sit the same way,
 and your home coastline drawn over it in red. The Python app below is the
 same idea at full resolution everywhere and is the reference the site was
 checked against.
+
+## What it looks like
+
+![The results view: a globe with numbered pins for the fifteen best matches, and ranked cards with home, match, and overlay thumbnails](docs/images/results-globe.png)
+
+*A full-planet search takes about a minute and a half in the browser. Pins
+land where your home dot would be on each match; cards carry the score, the
+transform, the distance from home, and three thumbnails.*
+
+![The Why view: a difference map of the two squares with a legend, and plain-language findings about where the coastlines agree and disagree](docs/images/why-view.png)
+
+*Why? explains a match: how much of your coastline the match follows, where
+the two agree best, where they disagree and in which direction, and how long
+the matched stretches are.*
+
+![The map zoomed to one match with its square outlined and the pin at the landing point](docs/images/match-detail.png)
+
+*Click a card to fly to the match. Eight basemaps and three overlays,
+including the 1 km land mask the matcher sees, are a click away under
+Layers.*
 
 ## How it works
 

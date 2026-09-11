@@ -390,7 +390,7 @@
     const ctrl = new AbortController();
     suggestState.ctrl = ctrl;
     try {
-      const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=5`, { signal: ctrl.signal });
+      const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=5&lang=en`, { signal: ctrl.signal });
       if (!res.ok) return;
       const data = await res.json();
       if (ctrl.signal.aborted || $("address").value.trim() !== q) return;

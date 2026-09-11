@@ -297,7 +297,7 @@
   }
   async function geocode(q) {
     try {
-      const data = await fetchJson(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=6`);
+      const data = await fetchJson(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=6&lang=en`);
       return (data.features || []).map((f) => ({
         lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0],
         name: photonName(f.properties || {}), type: (f.properties || {}).osm_value || "",
@@ -320,9 +320,9 @@
     }
     for (const radius of [30, 200]) {
       try {
-        const data = await fetchJson(`https://photon.komoot.io/reverse?lat=${lat}&lon=${lon}&radius=${radius}&osm_tag=place&limit=1`);
-        const f = (data.features || [])[0];
-        if (f && f.properties && f.properties.name) return placeName(f.properties);
+        const data = await fetchJson(`https://photon.komoot.io/reverse?lat=${lat}&lon=${lon}&radius=${radius}&osm_tag=place&limit=4&lang=en`);
+        const f = (data.features || []).find((x) => x.properties && x.properties.name && !["square", "locality", "plot", "house"].includes(x.properties.osm_value));
+        if (f) return placeName(f.properties);
       } catch (e) {}
     }
     try {
@@ -471,7 +471,7 @@
     const ctrl = new AbortController();
     suggestState.ctrl = ctrl;
     try {
-      const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=5`, { signal: ctrl.signal });
+      const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=5&lang=en`, { signal: ctrl.signal });
       if (!res.ok) return;
       const data = await res.json();
       if (ctrl.signal.aborted || $("address").value.trim() !== q) return;
