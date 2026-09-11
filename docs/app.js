@@ -105,8 +105,15 @@
   }
   if (webgl) map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-left");
   if (webgl && maplibregl.GlobeControl) map.addControl(new maplibregl.GlobeControl(), "top-left");
+  function fitMinZoom() {
+    const c = map.getContainer();
+    const d = Math.min(c.clientWidth, c.clientHeight) / 3;
+    if (d > 0) map.setMinZoom(Math.max(0, Math.log2(d / 163) + 0.21));
+  }
+  if (webgl) { map.on("load", fitMinZoom); map.on("resize", fitMinZoom); }
   map.on("style.load", () => {
     map.setProjection({ type: "globe" });
+    if (map.setSky) map.setSky({ "atmosphere-blend": ["interpolate", ["linear"], ["zoom"], 0, 0.9, 5, 0.9, 7, 0] });
     const firstSymbol = (map.getStyle().layers.find((l) => l.type === "symbol") || {}).id;
     if (!map.getSource("dem")) map.addSource("dem", DEM);
     if (!map.getSource("dem-terrain")) map.addSource("dem-terrain", DEM);
