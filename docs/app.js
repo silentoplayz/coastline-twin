@@ -109,10 +109,11 @@
     map.setProjection({ type: "globe" });
     const firstSymbol = (map.getStyle().layers.find((l) => l.type === "symbol") || {}).id;
     if (!map.getSource("dem")) map.addSource("dem", DEM);
+    if (!map.getSource("dem-terrain")) map.addSource("dem-terrain", DEM);
     if (!map.getLayer("hillshade")) map.addLayer({ id: "hillshade", type: "hillshade", source: "dem", layout: { visibility: layerPrefs.hillshade ? "visible" : "none" }, paint: { "hillshade-exaggeration": 0.45, "hillshade-shadow-color": "#1b1b1b", "hillshade-highlight-color": "#ffffff" } }, firstSymbol);
     if (!map.getSource("mask")) map.addSource("mask", { type: "image", url: BLANK_PNG, coordinates: [[-1, 1], [1, 1], [1, -1], [-1, -1]] });
     if (!map.getLayer("mask")) map.addLayer({ id: "mask", type: "raster", source: "mask", layout: { visibility: layerPrefs.mask ? "visible" : "none" }, paint: { "raster-opacity": 0.55, "raster-resampling": "nearest", "raster-fade-duration": 0 } }, firstSymbol);
-    map.setTerrain(layerPrefs.terrain ? { source: "dem", exaggeration: 1.2 } : null);
+    map.setTerrain(layerPrefs.terrain ? { source: "dem-terrain", exaggeration: 1.2 } : null);
     if (layerPrefs.mask) refreshMask();
     for (const [id, paint] of [
       ["home-square", { "line-color": "#d62728", "line-width": 2, "line-dasharray": [3, 2] }],
@@ -163,7 +164,7 @@
     if (!webgl) return;
     if (map.getLayer("hillshade")) map.setLayoutProperty("hillshade", "visibility", layerPrefs.hillshade ? "visible" : "none");
     if (map.getLayer("mask")) map.setLayoutProperty("mask", "visibility", layerPrefs.mask ? "visible" : "none");
-    if (map.getSource("dem")) map.setTerrain(layerPrefs.terrain ? { source: "dem", exaggeration: 1.2 } : null);
+    if (map.getSource("dem-terrain")) map.setTerrain(layerPrefs.terrain ? { source: "dem-terrain", exaggeration: 1.2 } : null);
     if (layerPrefs.mask) refreshMask();
     applyTiles();
   }
@@ -598,6 +599,8 @@
     document.querySelectorAll(".mode-tab").forEach((b) => { const on = b.dataset.mode === mode; b.classList.toggle("active", on); b.setAttribute("aria-selected", String(on)); });
     $("place-panel").hidden = mode !== "place";
     $("draw-panel").hidden = mode !== "draw";
+    $("copy-link").textContent = mode === "draw" ? "Copy link to this drawing" : "Copy link to this spot";
+    $("copy-link").closest(".button-row").hidden = false;
     document.querySelector('input[name="center-mode"]').closest(".choice-row").hidden = mode === "draw";
     for (const id of ["same-hemisphere", "lat-band"]) $(id).disabled = mode === "draw";
     $("map-hint").classList.toggle("faded", mode === "draw" || !!state.home);
@@ -975,11 +978,12 @@
     state.cancelled = false;
     $("run-button").disabled = true;
     const t0 = performance.now();
-    const label = $("label").value.trim() || (p.custom ? `${p.side_km} km drawn coastline` : `${p.side_km} km at ${fmt(p.home.lat, 3)}, ${fmt(p.home.lon, 3)}`);
+    let label = $("label").value.trim() || (p.custom ? `${p.side_km} km drawn coastline` : `${p.side_km} km at ${fmt(p.home.lat, 3)}, ${fmt(p.home.lon, 3)}`);
     try {
       setStatus("Preparing…", `${tiles.length} tiles on ${n} worker threads`, 0, { cancellable: true });
       await ensurePool(n);
       const homePlace = p.home ? ((await reverseGeocode(p.home.lat, p.home.lon).catch(() => "")) || homeName()) : null;
+      if (!$("label").value.trim() && homePlace) label = `${p.side_km} km at ${shortName(homePlace)}`;
       const prepared = await Promise.all(pool.workers.map((_, i) => pool.call(i, { type: "prepare", params: p })));
       const t = prepared[0].template;
       state.template = { n: t.n, res: t.res, land: landFrom(t.land), dot: t.dot, stats: t.stats };
@@ -1110,6 +1114,9 @@
   function showRun(run) {
     run.label_shift = labelShift(run);
     state.run = run;
+    const distanceOption = $("sort-by").querySelector('option[value="distance"]');
+    distanceOption.disabled = !run.params.home;
+    if (!run.params.home && view.sort === "distance") { view.sort = "score"; $("sort-by").value = "score"; saveView(); }
     $("results").hidden = false;
     $("results-title").textContent = run.label;
     const bits = [`${run.params.side_km} km square`, `${run.tiles} tiles`, fmtDuration(run.seconds)];
@@ -1839,7 +1846,7 @@
       const top = r.matches[0] ? `${escapeHtml(r.matches[0].place || fmtCoords(r.matches[0].dot_lat, r.matches[0].dot_lon))} (${r.matches[0].score.toFixed(3)})` : "";
       tr.innerHTML = `
         <td><b>${escapeHtml(r.label)}</b><br><span class="muted small">${timeAgo(r.started)}</span></td>
-        <td>${r.params.home ? fmtCoords(r.params.home.lat, r.params.home.lon) : "drawn"}</td><td>${r.params.side_km} km</td>
+        <td>${r.params.home ? escapeHtml(r.params.home_name ? shortName(r.params.home_name) : fmtCoords(r.params.home.lat, r.params.home.lon)) : "drawn"}</td><td>${r.params.side_km} km</td>
         <td>${r.matches.length}</td><td>${top}</td>
         <td class="actions"><button type="button" class="small" data-open="${r.id}">Open</button><button type="button" class="ghost small" data-delete="${r.id}">Delete</button></td>`;
       body.appendChild(tr);

@@ -61,7 +61,6 @@
           <label>Longitude <input type="number" id="home-lon" step="0.0001" min="-180" max="180"></label>
         </div>
         <p id="home-address" class="muted small">Click the map or drag the red pin to place your home.</p>
-        <div class="button-row" style="margin-top:8px"><button type="button" id="copy-link" class="ghost small">Copy link to this spot</button></div>
         </div>
         <div id="draw-panel" hidden>
           <canvas id="draw-canvas" class="draw-canvas"></canvas>
@@ -81,6 +80,7 @@
           </div>
           <p class="muted small">Paint land and water, then put the dot where "home" would be. The square is <output id="draw-side">60</output> km across, set by the Side slider below. Sand is land, blue is water.</p>
         </div>
+        <div class="button-row" style="margin-top:8px"><button type="button" id="copy-link" class="ghost small">Copy link to this spot</button></div>
       </section>
 
       <section class="panel">
@@ -286,6 +286,10 @@
     <li><b>Filter for the life you want, then rank by shape.</b> Same hemisphere keeps the seasons. A latitude band of 5 to 10 degrees roughly keeps the climate. A region limit finds the best twin inside a country you would move to.</li>
     <li><b>Read both score bars.</b> High mask with low coast means the land is in the right place but the shoreline differs. A high coast bar is the one that makes Compare line up.</li>
     <li><b>Use Compare before you believe a match.</b> Labels off, zoom slider, and check whether the red home coastline sits on the match's shoreline or just near it. Walk the next few matches with the arrows.</li>
+    <li><b>Use the climate filter for the life you want.</b> Same class keeps your summers and winters; same group keeps the broad type, temperate or continental or tropical. Shape ranks what survives.</li>
+    <li><b>Read sharpened scores as a set.</b> The top twenty are re-scored against 250 m shorelines, which is stricter, so every number drops a little and the labels are calibrated to the run. Compare and Why then show the shoreline at 250 m.</li>
+    <li><b>Draw a coast when there is no place.</b> Paint the shape, place the dot, and search. A drawing carries no location, and the link from Copy link reopens it for anyone.</li>
+    <li><b>Share a comparison, not a screenshot.</b> Compare has a Share card and a Copy link; the link reopens the exact pairing, the card is a picture of it.</li>
     <li><b>Rerun with a shifted square.</b> Moving the center 10 km or changing the side 20 percent can change the top match. If the same places keep coming back, that is a real twin.</li>
   </ol>
 </dialog>

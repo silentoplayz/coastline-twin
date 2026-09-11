@@ -370,7 +370,7 @@ def create_job(req: JobRequest):
     )
     job = {
         "id": job_id,
-        "label": req.label or (f"{req.side_km:g} km drawn coastline" if req.custom else f"{req.side_km:g} km at {req.home.lat:.3f}, {req.home.lon:.3f}"),
+        "label": req.label or (f"{req.side_km:g} km drawn coastline" if req.custom else f"{req.side_km:g} km at {req.home_name}" if req.home_name else f"{req.side_km:g} km at {req.home.lat:.3f}, {req.home.lon:.3f}"),
         "status": "running",
         "started": time.time(),
         "pid": proc.pid,
