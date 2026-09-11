@@ -1233,8 +1233,9 @@
     ctx.putImageData(img, 0, 0);
   }
   const why = { run: null, index: 0, seq: 0 };
-  function renderWhy(run, m, home, win, n, bandPx, res, note) {
+  function renderWhy(run, m, home, win, n, bandPx, res, note, pending) {
     const a = analyzeMatch(home, win, n, bandPx);
+    $("why-dialog").classList.toggle("why-preview", !!pending);
     const bandKm = Math.round(bandPx * res / 100) / 10;
     const place = m.place || fmtCoords(m.dot_lat, m.dot_lon);
     $("why-title").textContent = `Why #${m.rank} ${place} matched`;
@@ -1246,6 +1247,11 @@
     $("why-score").textContent = m.score.toFixed(3);
     $("why-continuity").textContent = `${Math.round(a.continuity * 100)}%`;
     $("why-longest").textContent = `${Math.round(a.largestShare * 100)}% of your coast`;
+    if (pending) {
+      $("why-summary").textContent = pending;
+      $("why-points").innerHTML = "";
+      return;
+    }
     const text = whyText(a, { ...m, n }, run, res, bandKm);
     $("why-summary").textContent = text.summary;
     $("why-points").innerHTML = text.points.map((t) => `<li>${escapeHtml(t)}</li>`).join("");
@@ -1258,13 +1264,16 @@
     why.run = run; why.index = index;
     const seq = ++why.seq;
     const n = run.template.n;
-    renderWhy(run, m, landFrom(run.template.land), landFrom(m.window), n, run.params.band_px || 2, run.template.res, m.vector ? "loading the 250 m windows…" : "");
+    const fineRes = m.vector ? Math.round(m.vector_res_m || Math.max(150, Math.min(500, run.params.side_km * 1000 / 400))) : 0;
+    const coarse = () => renderWhy(run, m, landFrom(run.template.land), landFrom(m.window), n, run.params.band_px || 2, run.template.res, m.vector ? "1 km windows" : "");
+    if (m.vector) renderWhy(run, m, landFrom(run.template.land), landFrom(m.window), n, run.params.band_px || 2, run.template.res, `1 km preview, loading the ${fineRes} m windows…`, `Analyzing at ${fineRes} m…`);
+    else coarse();
     $("why-dialog").showModal();
     if (m.vector) {
       loadFineOverlay(run, m).then((fine) => {
         if (why.seq !== seq || !$("why-dialog").open) return;
         renderWhy(run, m, fine.home, fine.match, fine.n, fine.bandPx, fine.res, `analyzed at ${Math.round(fine.res)} m`);
-      }).catch(() => { if (why.seq === seq) $("why-meta").textContent = $("why-meta").textContent.replace(" · loading the 250 m windows…", " · 1 km windows"); });
+      }).catch(() => { if (why.seq === seq && $("why-dialog").open) coarse(); });
     }
   }
   $("why-close").addEventListener("click", () => $("why-dialog").close());
