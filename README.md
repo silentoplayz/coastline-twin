@@ -35,6 +35,12 @@ transform, the distance from home, and three thumbnails.*
 the two agree best, where they disagree and in which direction, and how long
 the matched stretches are.*
 
+![Draw mode: a hand-painted bay with a headland and an island in the sidebar, and its fifteen best twins pinned across a globe](docs/images/draw-mode.png)
+
+*Draw a coastline instead of choosing a place. This bay never existed, and
+its closest twin is Ras Banas on Egypt's Red Sea coast. The drawing travels
+inside the shareable link.*
+
 ![The map zoomed to one match with its square outlined and the pin at the landing point](docs/images/match-detail.png)
 
 *Click a card to fly to the match. Eight basemaps and three overlays,

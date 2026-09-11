@@ -755,7 +755,7 @@
       if (job.status !== "running" && job.status !== "cancelling") {
         clearInterval(state.pollTimer);
         state.running = false;
-        $("run-button").disabled = !state.home;
+        $("run-button").disabled = state.mode === "draw" ? !draw.land : !state.home;
         if (job.status === "done") {
           toast(`Done: ${job.count} matches in ${fmtDuration(job.seconds)}`);
           showRun(runFromJob(job));
@@ -768,7 +768,7 @@
       clearInterval(state.pollTimer);
       state.running = false;
       toast(err.message);
-      $("run-button").disabled = !state.home;
+      $("run-button").disabled = state.mode === "draw" ? !draw.land : !state.home;
     }
   }
   function renderJobStatus(job) {

@@ -877,7 +877,7 @@
     if (pool) { pool.destroy(); pool = null; }
     state.running = false;
     setStatus("Cancelled", "", 0, { failed: true });
-    $("run-button").disabled = !state.home;
+    $("run-button").disabled = state.mode === "draw" ? !draw.land : !state.home;
   });
 
   async function startRun() {
@@ -936,7 +936,7 @@
       if (!state.cancelled) { setStatus("Failed", err.message, 0, { failed: true }); toast(err.message); }
     } finally {
       state.running = false;
-      $("run-button").disabled = !state.home;
+      $("run-button").disabled = state.mode === "draw" ? !draw.land : !state.home;
     }
   }
 
