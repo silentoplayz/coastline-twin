@@ -40,6 +40,7 @@ class SearchConfig:
     variance_floor: float = 0.3
     refine_per_tile: int = 6
     rot_step: float = 15.0
+    rot_max: float = 45.0
     step_deg: float = 9.0
     lat_limit: float = 81.0
 
@@ -232,6 +233,14 @@ def refine(template, cfg, cand):
     delta = cfg.rot_step / 2
     best = None
 
+    def clamp_theta(th):
+        th = (th + 180.0) % 360.0 - 180.0
+        if cfg.rot_max >= 180:
+            return th
+        return max(-cfg.rot_max, min(cfg.rot_max, th))
+
+    coarse_thetas = sorted({clamp_theta(t) for t in (cand["theta"] - delta, cand["theta"], cand["theta"] + delta)})
+
     def evaluate(theta, scale, dx, dy):
         nonlocal best
         frac = _window(grid, g, ghalf, gres, feats, theta, cand["flip"], scale, dx, dy)
@@ -240,12 +249,12 @@ def refine(template, cfg, cand):
             best = {**sc, "theta": theta, "scale": scale, "dx": dx, "dy": dy}
 
     for scale in scales:
-        for theta in (cand["theta"] - delta, cand["theta"], cand["theta"] + delta):
+        for theta in coarse_thetas:
             for dy in (-2 * step, 0.0, 2 * step):
                 for dx in (-2 * step, 0.0, 2 * step):
                     evaluate(theta, scale, dx, dy)
     b0 = dict(best)
-    for theta in (b0["theta"] - delta / 2, b0["theta"], b0["theta"] + delta / 2):
+    for theta in sorted({clamp_theta(t) for t in (b0["theta"] - delta / 2, b0["theta"], b0["theta"] + delta / 2)}):
         for dy in (-step, 0.0, step):
             for dx in (-step, 0.0, step):
                 if dx or dy or theta != b0["theta"]:

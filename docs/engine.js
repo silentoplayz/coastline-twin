@@ -514,7 +514,11 @@ async function refine(cand) {
   const reg = regionOf(frame, ext);
   await ensureRegion(...reg);
   const lg = sampleLocalFine(frame, ext, t.resM / 2);
-  const thetas = [cand.theta - p.rot_step / 2, cand.theta, cand.theta + p.rot_step / 2];
+  const clampTheta = (th) => {
+    th = ((th + 180) % 360 + 360) % 360 - 180;
+    return p.rot_max >= 180 ? th : Math.max(-p.rot_max, Math.min(p.rot_max, th));
+  };
+  const thetas = [...new Set([cand.theta - p.rot_step / 2, cand.theta, cand.theta + p.rot_step / 2].map(clampTheta))];
   const radius = p.coarse_res;
   const step = t.resM;
   let best = null;
@@ -528,7 +532,7 @@ async function refine(cand) {
     for (let dy = -r2; dy <= r2 + 1e-6; dy += 2 * step) for (let dx = -r2; dx <= r2 + 1e-6; dx += 2 * step) evaluate(theta, scale, dx, dy);
   }
   const b0 = { ...best };
-  const fine = [b0.theta - p.rot_step / 4, b0.theta, b0.theta + p.rot_step / 4];
+  const fine = [...new Set([b0.theta - p.rot_step / 4, b0.theta, b0.theta + p.rot_step / 4].map(clampTheta))];
   for (const theta of fine) for (let dy = -step; dy <= step; dy += step) for (let dx = -step; dx <= step; dx += step) if (dx || dy || theta !== b0.theta) evaluate(theta, b0.scale, b0.dx + dx, b0.dy + dy);
   if (best.score < p.min_score) return null;
   const [clat, clon] = toLatLon(frame, best.dx, best.dy);

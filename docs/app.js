@@ -552,7 +552,7 @@
     return {
       home: state.home, center: effectiveCenter(), side_m, side_km: sideKm,
       supersample: 2, band_px: Number($("band-px").value) || 1, detail_weight: Number($("detail-weight").value), variance_floor: 0.3,
-      thetas, flips, scales: scales.length ? scales : [1], rot_step,
+      thetas, flips, scales: scales.length ? scales : [1], rot_step, rot_max: rotMax,
       min_score: minScore, coarse_min_score: Math.max(0.25, minScore - 0.15),
       nms_px: Math.max(3, Math.round(side_m / coarse_res / 2)), per_tile: 12, refine_per_tile: 5,
       exclude_km: $("exclude-km").value === "" ? 2 * sideKm : Number($("exclude-km").value),

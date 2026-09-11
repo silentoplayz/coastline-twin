@@ -80,6 +80,7 @@ def main(argv=None):
         band_width=args.band_px,
         detail_weight=args.detail_weight,
         rot_step=args.rot_step,
+        rot_max=args.rot_max,
     )
 
     run_name = args.name or time.strftime("%Y%m%d-%H%M%S")
