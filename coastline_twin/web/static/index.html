@@ -190,6 +190,19 @@
       <button type="button" role="tab" aria-selected="false" data-tab="sheet">Contact sheet</button>
       <button type="button" role="tab" aria-selected="false" data-tab="files">Files</button>
     </div>
+    <div class="results-tools">
+      <label>Sort by
+        <select id="sort-by">
+          <option value="score">Score</option>
+          <option value="coast">Coast score</option>
+          <option value="mask">Mask score</option>
+          <option value="distance">Distance from home</option>
+          <option value="rotation">Least rotated</option>
+        </select>
+      </label>
+      <label class="check"><input type="checkbox" id="hide-mirrored"> Hide mirrored</label>
+      <span id="results-count" class="muted small"></span>
+    </div>
     <div id="tab-matches" class="tab-page">
       <ol id="match-list" class="matches"></ol>
     </div>

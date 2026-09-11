@@ -65,8 +65,10 @@ What the page does:
   any point. When it finishes the matches appear as cards and as numbered pins
   on a MapLibre globe, each with the matched square drawn on it. Click a card
   to fly there, or press Compare to see home and match side by side on real
-  map imagery with the match rotated, mirrored, and scaled to line up. The
-  other tabs hold the contact sheet and the downloadable files.
+  map imagery with the match rotated, mirrored, and scaled to line up. Sort
+  the list by total, coast, or mask score, by distance from home, or by least
+  rotation, and hide mirrored matches; the pins and Compare follow the same
+  order. The other tabs hold the contact sheet and the downloadable files.
 - **Layers.** The Layers button on the map picks a basemap and overlays. Basemaps:
   the five OpenFreeMap vector styles (Light, Dark, Streets, Bright, Fiord),
   OpenTopoMap, and Esri satellite imagery, none of which need an API key. Overlays: hillshade and 3D terrain from Mapzen elevation

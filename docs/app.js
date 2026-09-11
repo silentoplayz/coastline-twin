@@ -805,13 +805,27 @@
     state.matches = [];
     state.selected = null;
   }
+  const VIEW_KEY = "coastline-twin-view";
+  const view = { sort: "score", hideMirrored: false };
+  try { Object.assign(view, JSON.parse(localStorage.getItem(VIEW_KEY) || "{}")); } catch (e) {}
+  $("sort-by").value = view.sort;
+  $("hide-mirrored").checked = view.hideMirrored;
+  $("sort-by").addEventListener("change", () => { view.sort = $("sort-by").value; saveView(); renderMatches(); });
+  $("hide-mirrored").addEventListener("change", () => { view.hideMirrored = $("hide-mirrored").checked; saveView(); renderMatches(); });
+  function saveView() { try { localStorage.setItem(VIEW_KEY, JSON.stringify(view)); } catch (e) {} }
+  function visibleMatches(run) {
+    const home = run.params.home;
+    const key = {
+      score: (m) => -m.score,
+      coast: (m) => -m.coast_score,
+      mask: (m) => -m.mask_score,
+      distance: (m) => haversineKm(home.lat, home.lon, m.dot_lat, m.dot_lon),
+      rotation: (m) => Math.abs(m.theta) + (m.flip ? 1000 : 0),
+    }[view.sort] || ((m) => -m.score);
+    return run.matches.filter((m) => !view.hideMirrored || !m.flip).map((m) => [key(m), m]).sort((a, b) => a[0] - b[0]).map(([, m]) => m);
+  }
   function showRun(run) {
-    clearResults();
     state.run = run;
-    const t = { n: run.template.n, res: run.template.res, land: landFrom(run.template.land), dot: run.template.dot };
-    const dot = dotPixel(t);
-    const matches = run.matches;
-    state.matches = matches;
     $("results").hidden = false;
     $("results-title").textContent = run.label;
     const bits = [`${run.params.side_km} km square`, `${run.tiles} tiles`, fmtDuration(run.seconds)];
@@ -819,15 +833,30 @@
     if (run.params.lat_band != null) bits.push(`±${run.params.lat_band}° latitude`);
     if (run.params.bbox) bits.push("region limited");
     $("results-meta").textContent = bits.join(" · ");
+    const t = run.template ? { n: run.template.n, res: run.template.res, land: landFrom(run.template.land), dot: run.template.dot } : { n: 0, res: 1, land: null, dot: [0, 0] };
+    renderMatches();
+    switchTab("matches");
+    renderFiles(run, t);
+  }
+  function renderMatches() {
+    const run = state.run;
+    if (!run) return;
+    clearResults();
+    const t = run.template ? { n: run.template.n, res: run.template.res, land: landFrom(run.template.land), dot: run.template.dot } : { n: 0, res: 1, land: null, dot: [0, 0] };
+    const dot = t.land ? dotPixel(t) : null;
+    const matches = visibleMatches(run);
+    state.matches = matches;
+    $("results-count").textContent = matches.length === run.matches.length ? `${matches.length} matches` : `${matches.length} of ${run.matches.length} matches`;
     const list = $("match-list");
     list.innerHTML = "";
     const sheet = $("sheet");
     sheet.innerHTML = "";
     const bounds = [];
     const squares = [];
-    for (const m of matches) {
+    matches.forEach((m, index) => {
       const place = m.place || fmtCoords(m.dot_lat, m.dot_lon);
       const flip = m.flip ? ", mirrored" : "";
+      const distance = fmtKm(haversineKm(run.params.home.lat, run.params.home.lon, m.dot_lat, m.dot_lon));
       const osm = `https://www.openstreetmap.org/?mlat=${m.dot_lat.toFixed(5)}&mlon=${m.dot_lon.toFixed(5)}#map=11/${m.dot_lat.toFixed(5)}/${m.dot_lon.toFixed(5)}`;
       const gm = `https://www.google.com/maps/search/?api=1&query=${m.dot_lat.toFixed(5)},${m.dot_lon.toFixed(5)}`;
       const li = document.createElement("li");
@@ -836,17 +865,21 @@
         <div class="rank">${m.rank}</div>
         <div class="place">${escapeHtml(place)}</div>
         <div class="score">${m.score.toFixed(3)}</div>
-        <div class="detail">rotated ${m.theta > 0 ? "+" : ""}${Math.round(m.theta)}°${flip}, ${m.side_km.toFixed(0)} km square · ${fmtKm(haversineKm(run.params.home.lat, run.params.home.lon, m.dot_lat, m.dot_lon))} from home · dot at ${fmtCoords(m.dot_lat, m.dot_lon)}</div>
+        <div class="detail">rotated ${m.theta > 0 ? "+" : ""}${Math.round(m.theta)}°${flip}, ${m.side_km.toFixed(0)} km square · ${distance} from home · dot at ${fmtCoords(m.dot_lat, m.dot_lon)}</div>
         <div class="bars"><span>mask</span><div class="bar"><i style="width:${Math.max(0, m.mask_score) * 100}%"></i></div><span>coast</span><div class="bar"><i style="width:${Math.max(0, m.coast_score) * 100}%"></i></div></div>
         <div class="strip"><div><canvas></canvas><span>home</span></div><div><canvas></canvas><span>match</span></div><div><canvas></canvas><span>overlay</span></div></div>
         <div class="links"><a href="${osm}" target="_blank" rel="noopener">OpenStreetMap</a><a href="${gm}" target="_blank" rel="noopener">Google Maps</a><button type="button" class="small" data-compare="${m.rank}">Compare</button></div>`;
-      const win = landFrom(m.window);
+      const win = t.land && m.window ? landFrom(m.window) : null;
       const cv = li.querySelectorAll("canvas");
-      drawMask(cv[0], t.land, t.n, dot);
-      drawMask(cv[1], win, t.n, dot);
-      drawMask(cv[2], win, t.n, dot, t.land);
+      if (win) {
+        drawMask(cv[0], t.land, t.n, dot);
+        drawMask(cv[1], win, t.n, dot);
+        drawMask(cv[2], win, t.n, dot, t.land);
+      } else {
+        li.querySelector(".strip").hidden = true;
+      }
       li.addEventListener("click", (e) => { if (e.target.tagName !== "A" && e.target.tagName !== "BUTTON") selectMatch(m.rank, true); });
-      li.querySelector("[data-compare]").addEventListener("click", () => openCompare(run, m.rank - 1));
+      li.querySelector("[data-compare]").addEventListener("click", () => openCompare(run, index));
       list.appendChild(li);
 
       const row = document.createElement("div");
@@ -854,10 +887,14 @@
       row.innerHTML = `<div class="title">#${m.rank} ${escapeHtml(place)} · ${m.score.toFixed(3)}</div><div class="muted small">rotated ${m.theta > 0 ? "+" : ""}${Math.round(m.theta)}°${flip}, ${m.side_km.toFixed(0)} km square · <a href="#" data-compare>compare on the map</a></div>
         <div class="strip"><div><canvas></canvas><span>home</span></div><div><canvas></canvas><span>match</span></div><div><canvas></canvas><span>overlay</span></div></div>`;
       const cs = row.querySelectorAll("canvas");
-      drawMask(cs[0], t.land, t.n, dot);
-      drawMask(cs[1], win, t.n, dot);
-      drawMask(cs[2], win, t.n, dot, t.land);
-      row.querySelector("[data-compare]").addEventListener("click", (e) => { e.preventDefault(); openCompare(run, m.rank - 1); });
+      if (win) {
+        drawMask(cs[0], t.land, t.n, dot);
+        drawMask(cs[1], win, t.n, dot);
+        drawMask(cs[2], win, t.n, dot, t.land);
+      } else {
+        row.querySelector(".strip").hidden = true;
+      }
+      row.querySelector("[data-compare]").addEventListener("click", (e) => { e.preventDefault(); openCompare(run, index); });
       sheet.appendChild(row);
 
       const marker = makePin("pin-match", { text: String(m.rank) });
@@ -869,15 +906,13 @@
       squares.push(polygonFeature(m.square, { rank: m.rank }));
       state.markers.set(m.rank, { marker, square: m.square, li });
       bounds.push([m.dot_lon, m.dot_lat]);
-    }
+    });
     setOverlay("match-squares", squares);
     if (run.params.home) bounds.push([run.params.home.lon, run.params.home.lat]);
-    switchTab("matches");
     requestAnimationFrame(() => {
       map.resize();
       if (bounds.length) map.fitBounds(boundsOf(bounds), { padding: 50, maxZoom: 6, duration: 900 });
     });
-    renderFiles(run, t);
   }
 
   function download(name, blob) {
@@ -968,7 +1003,7 @@
   }
   $("results-close").addEventListener("click", () => { $("results").hidden = true; clearResults(); requestAnimationFrame(() => map.resize()); });
 
-  const compare = { home: null, match: null, run: null, index: 0, dots: [] };
+  const compare = { home: null, match: null, run: null, list: null, index: 0, dots: [] };
   function coastSegments(land, n, res) {
     const half = n * res / 2;
     const segs = [];
@@ -1020,9 +1055,10 @@
     for (const [id, fc] of Object.entries(data)) { const src = m.getSource(id); if (src) src.setData(fc); }
   }
   function openCompare(run, index) {
+    compare.list = state.run === run ? state.matches : run.matches;
     if (!webgl) { toast("The comparison view needs WebGL, which this browser does not provide."); return; }
     compare.run = run;
-    compare.index = Math.max(0, Math.min(run.matches.length - 1, index));
+    compare.index = Math.max(0, Math.min(compare.list.length - 1, index));
     $("compare-dialog").showModal();
     requestAnimationFrame(() => {
       ensureCompareMaps();
@@ -1033,8 +1069,8 @@
   }
   function renderCompare() {
     const run = compare.run;
-    if (!run) return;
-    const m = run.matches[compare.index];
+    if (!run || !compare.list) return;
+    const m = compare.list[compare.index];
     const t = run.template;
     const land = landFrom(t.land);
     const homeFrame = makeFrame(run.params.center.lat, run.params.center.lon);
@@ -1072,11 +1108,11 @@
     $("compare-home-caption").textContent = `Home · ${run.params.side_km} km square`;
     $("compare-match-caption").textContent = `${place}${m.flip ? " · mirrored, labels off" : ""}`;
     $("compare-prev").disabled = compare.index === 0;
-    $("compare-next").disabled = compare.index >= run.matches.length - 1;
+    $("compare-next").disabled = compare.index >= compare.list.length - 1;
   }
   $("compare-close").addEventListener("click", () => $("compare-dialog").close());
   $("compare-prev").addEventListener("click", () => { if (compare.index > 0) { compare.index--; renderCompare(); } });
-  $("compare-next").addEventListener("click", () => { if (compare.run && compare.index < compare.run.matches.length - 1) { compare.index++; renderCompare(); } });
+  $("compare-next").addEventListener("click", () => { if (compare.list && compare.index < compare.list.length - 1) { compare.index++; renderCompare(); } });
   $("compare-dialog").addEventListener("keydown", (ev) => {
     if (ev.key === "ArrowLeft") $("compare-prev").click();
     else if (ev.key === "ArrowRight") $("compare-next").click();

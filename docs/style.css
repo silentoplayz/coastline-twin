@@ -331,3 +331,8 @@ dialog.tips { width: min(720px, 92vw); max-height: 88vh; overflow-y: auto; }
 .layers-group b { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 4px; }
 .layers-options { display: flex; flex-direction: column; gap: 3px; }
 .layers-options label { display: flex; align-items: center; gap: 7px; cursor: pointer; }
+
+.results-tools { display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-bottom: 1px solid var(--border); font-size: 12px; color: var(--muted); flex-wrap: wrap; }
+.results-tools select { width: auto; padding: 4px 6px; font-size: 12px; margin-left: 4px; }
+.results-tools .check { margin: 0; }
+.results-tools #results-count { margin-left: auto; }
