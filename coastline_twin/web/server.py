@@ -633,3 +633,4 @@ def shared_style():
 
 app.mount("/results", StaticFiles(directory=RESULTS), name="results")
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
+app.mount("/images", StaticFiles(directory=ROOT / "docs" / "images"), name="images")

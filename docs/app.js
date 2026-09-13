@@ -60,6 +60,7 @@
   }
 
   const STYLES = { light: "https://tiles.openfreemap.org/styles/positron", dark: "https://tiles.openfreemap.org/styles/dark" };
+  const IMAGES = "images/";
   const BASEMAPS = {
     auto: { name: "Match the theme" },
     positron: { name: "Light", style: "https://tiles.openfreemap.org/styles/positron" },
@@ -278,9 +279,11 @@
     const group = $("basemap-options");
     if (!group) return;
     group.innerHTML = "";
+    group.classList.add("basemaps");
     for (const [key, b] of Object.entries(BASEMAPS)) {
       const label = document.createElement("label");
-      label.innerHTML = `<input type="radio" name="basemap" value="${key}"> ${b.name}`;
+      label.className = "basemap-card";
+      label.innerHTML = `<input type="radio" name="basemap" value="${key}"><img src="${IMAGES}basemaps/${key}.jpg" alt="" width="40" height="40" loading="lazy"><span>${b.name}</span>`;
       label.querySelector("input").checked = layerPrefs.basemap === key;
       label.querySelector("input").addEventListener("change", () => { layerPrefs.basemap = key; applyLayerPrefs(); });
       group.appendChild(label);
