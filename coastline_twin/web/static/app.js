@@ -64,7 +64,10 @@
     $("map").innerHTML = '<div class="preview-empty" style="padding:40px">This browser has no WebGL, so the map cannot be drawn. Searching still works: type an address or coordinates on the left.</div>';
     $("map-hint").hidden = true;
   }
-  if (webgl) map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
+  if (webgl) {
+    map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
+    map.addControl({ onAdd() { const el = $("map-status"); el.classList.add("maplibregl-ctrl"); return el; }, onRemove() {} }, "bottom-right");
+  }
   if (webgl) map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-left");
   if (webgl && maplibregl.GlobeControl) map.addControl(new maplibregl.GlobeControl(), "top-left");
   function fitMinZoom() {
