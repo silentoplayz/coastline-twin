@@ -58,7 +58,7 @@
   const nullMap = new Proxy({}, { get: (_, key) => (key === "getSource" || key === "getLayer" ? noop : key === "getBounds" ? () => null : key === "getZoom" ? () => 2 : key === "getContainer" ? () => $("map") : noop) });
   const map = webgl ? new maplibregl.Map({
     container: "map", style: styleFor(currentScheme()), center: [-20, 30], zoom: 1.6, minZoom: 1.5,
-    attributionControl: false, canvasContextAttributes: { antialias: true },
+    attributionControl: false, canvasContextAttributes: { antialias: true }, maxTileCacheZoomLevels: 16,
   }) : nullMap;
   if (!webgl) {
     $("map").innerHTML = '<div class="preview-empty" style="padding:40px">This browser has no WebGL, so the map cannot be drawn. Searching still works: type an address or coordinates on the left.</div>';
