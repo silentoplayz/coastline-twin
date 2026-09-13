@@ -63,6 +63,26 @@ def sample_land(frame, half_m, res_m, supersample=1):
     return land.mean(axis=(1, 3), dtype=np.float32)
 
 
+def coast_weight(land, valid=None, width=1, soft=0.0):
+    """Coast band as float weights. soft > 0 gives exp(-(d/soft)^2) by pixel distance to the shoreline instead of a hard band."""
+    if soft <= 0:
+        return coast_band(land, valid, width).astype(np.float64)
+    from scipy.ndimage import binary_dilation
+
+    core = coast_band(land, valid, 0)
+    dist = np.full(core.shape, np.inf)
+    dist[core] = 0.0
+    cur = core.copy()
+    for k in range(1, int(np.ceil(3 * soft)) + 1):
+        nxt = binary_dilation(cur)
+        dist[nxt & ~cur] = k
+        cur = nxt
+    w = np.exp(-((dist / soft) ** 2))
+    if valid is not None:
+        w[~np.asarray(valid, dtype=bool)] = 0.0
+    return w
+
+
 def coast_band(land, valid=None, width=1):
     from scipy.ndimage import binary_dilation
 

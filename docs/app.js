@@ -635,9 +635,9 @@
   function mirrorText(m) { return m.mirror === "ns" ? ", mirrored north–south" : (m.flip ? ", mirrored" : ""); }
   function scoreLabel(score, run) {
     const adjusted = score - (run && run.label_shift ? run.label_shift : 0);
-    if (adjusted >= 0.8) return ["close twin", "chip-strong"];
-    if (adjusted >= 0.7) return ["strong", "chip-good"];
-    if (adjusted >= 0.6) return ["outline match", "chip-fair"];
+    if (adjusted >= 0.83) return ["close twin", "chip-strong"];
+    if (adjusted >= 0.73) return ["strong", "chip-good"];
+    if (adjusted >= 0.63) return ["outline match", "chip-fair"];
     return ["loose", "chip-weak"];
   }
   const HIST_BINS = 400, HIST_STEP = 2 / HIST_BINS;
@@ -650,7 +650,7 @@
     for (let i = b + 1; i < HIST_BINS; i++) above += scored.hist[i];
     return 100 * Math.min(scored.n, above + 1) / scored.n;
   }
-  const COMMON_SCORE = 0.7, COMMON_MIN_PCT = 5;
+  const COMMON_SCORE = 0.73, COMMON_MIN_PCT = 5;
   function commonShare(run) {
     const scored = run && run.scored;
     if (!scored || !scored.n) return null;
@@ -1036,7 +1036,7 @@
     const drawn = state.mode === "draw";
     return {
       home: drawn ? null : state.home, center: drawn ? null : effectiveCenter(), custom: drawn ? customParams() : null, side_m, side_km: sideKm,
-      supersample: 2, band_px: Number($("band-px").value) || 1, detail_weight: Number($("detail-weight").value), variance_floor: 0.3,
+      supersample: 2, band_px: Number($("band-px").value) || 1, band_soft: 2.5, taper: 0.5, detail_weight: Number($("detail-weight").value), variance_floor: 0.3,
       thetas, flips, scales: scales.length ? scales : [1], rot_step, rot_max: rotMax, hemisphere_flip: $("hemisphere-flip").checked,
       min_score: minScore, coarse_min_score: Math.max(0.25, minScore - 0.15),
       nms_px: Math.max(3, Math.round(side_m / coarse_res / 2)), per_tile: $("climate").value ? 40 : 12, refine_per_tile: 5,

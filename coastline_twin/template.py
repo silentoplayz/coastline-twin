@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .geo import LocalFrame, coast_band, is_land, sample_land
+from .geo import LocalFrame, coast_band, coast_weight, is_land, sample_land
 
 
 def _rot(theta_deg):
@@ -39,11 +39,13 @@ class Variant:
     norm: float
     band_values: np.ndarray
     band_norm: float
-    count: int
+    count: float
 
 
 class Template:
-    def __init__(self, home, center, side_m, res_m, supersample=2, band_width=2, grid=None, dot_px=None):
+    def __init__(self, home, center, side_m, res_m, supersample=2, band_width=2, grid=None, dot_px=None, band_soft=0.0, taper=0.0):
+        self.band_soft = float(band_soft)
+        self.taper = float(taper)
         self.side_m = float(side_m)
         self.half_m = self.side_m / 2
         self.res_m = float(res_m)
@@ -102,6 +104,20 @@ class Template:
             "coast_ratio": float(edges / self.n),
         }
 
+    def taper_at(self, px, py):
+        r = np.maximum(np.abs(px), np.abs(py)) / self.half_m
+        if self.taper <= 0:
+            return np.ones_like(r, dtype=np.float64)
+        start = 1.0 - self.taper
+        t = np.clip((r - start) / self.taper, 0.0, 1.0)
+        return 0.5 * (1.0 + np.cos(np.pi * t))
+
+    def taper_weights(self):
+        n = self.n
+        c = (np.arange(n) + 0.5) * self.res_m - n * self.res_m / 2
+        px, py = np.meshgrid(c, -c)
+        return self.taper_at(px, py)
+
     def footprint_extent(self, theta, scale):
         c, s = _rot(theta)
         return self.half_m * scale * (abs(c) + abs(s))
@@ -121,17 +137,18 @@ class Template:
                 sx, sy = inverse(qx + du * self.res_m, qy + dv * self.res_m, theta, flip, scale)
                 frac[inside] += self.land_xy(sx[inside], sy[inside])
         frac /= ss * ss
-        count = int(inside.sum())
+        w = np.where(inside, self.taper_at(px, py), 0.0)
+        count = float(w.sum())
         vals = 2.0 * frac - 1.0
-        mean = vals[inside].mean()
-        zero_mean = np.where(inside, vals - mean, 0.0).astype(np.float32)
-        norm = float(np.sqrt(np.sum(zero_mean.astype(np.float64) ** 2)))
-        band = coast_band(frac >= 0.5, inside, self.band_width).astype(np.float64)
-        band_mean = band[inside].mean()
-        band_zero = np.where(inside, band - band_mean, 0.0).astype(np.float32)
-        band_norm = float(np.sqrt(np.sum(band_zero.astype(np.float64) ** 2)))
+        mean = (w * vals).sum() / count
+        zero_mean = np.where(inside, vals - mean, 0.0)
+        norm = float(np.sqrt(np.sum(w * zero_mean**2)))
+        band = coast_weight(frac >= 0.5, inside, self.band_width, self.band_soft)
+        band_mean = (w * band).sum() / count
+        band_zero = np.where(inside, band - band_mean, 0.0)
+        band_norm = float(np.sqrt(np.sum(w * band_zero**2)))
         return Variant(
-            index, float(theta), bool(flip), float(scale), m, inside, zero_mean, norm, band_zero, band_norm, count
+            index, float(theta), bool(flip), float(scale), m, w.astype(np.float32), (w * zero_mean).astype(np.float32), norm, (w * band_zero).astype(np.float32), band_norm, count
         )
 
     def variants(self, thetas, flips, scales, hemisphere_flip=False):

@@ -8,7 +8,7 @@ import numpy as np
 from scipy import fft as sfft
 from scipy.ndimage import label, maximum_filter
 
-from .geo import LocalFrame, coast_band, haversine_km, is_land, sample_land
+from .geo import LocalFrame, coast_band, coast_weight, haversine_km, is_land, sample_land
 from .template import describe_mirror, forward
 
 
@@ -39,6 +39,8 @@ class SearchConfig:
     workers: int
     supersample: int = 2
     band_width: int = 2
+    band_soft: float = 0.0
+    taper: float = 0.0
     detail_weight: float = 0.5
     variance_floor: float = 0.3
     refine_per_tile: int = 6
@@ -208,14 +210,16 @@ def _template_features(template, cfg):
     if key in _STATE:
         return _STATE[key]
     n = template.n
+    w = template.taper_weights()
     vals = 2.0 * template.fraction.astype(np.float64) - 1.0
-    vz = vals - vals.mean()
-    band = coast_band(template.land, None, cfg.band_width).astype(np.float64)
-    bz = band - band.mean()
+    vz = vals - (w * vals).sum() / w.sum()
+    band = coast_weight(template.land, None, cfg.band_width, cfg.band_soft)
+    bz = band - (w * band).sum() / w.sum()
     coast = coast_band(template.land, None, 0)
     feats = {
-        "vz": vz, "vnorm": float(np.sqrt((vz**2).sum())),
-        "bz": bz, "bnorm": float(np.sqrt((bz**2).sum())),
+        "w": w,
+        "vz": vz, "vnorm": float(np.sqrt((w * vz**2).sum())),
+        "bz": bz, "bnorm": float(np.sqrt((w * bz**2).sum())),
         "coast": coast, "coast_total": int(coast.sum()),
         "run_full": max(8, int(round(n / 2))),
         "px": (np.arange(n) + 0.5) * template.res_m - template.half_m,
@@ -271,18 +275,20 @@ def _continuity(coast, match_band, run_full):
 def _score_window(frac, feats, cfg):
     vals = 2.0 * frac - 1.0
     binary = frac >= 0.5
-    wz = vals - vals.mean()
-    wnorm = float(np.sqrt((wz**2).sum()))
+    w = feats["w"]
+    wsum = w.sum()
+    wz = vals - (w * vals).sum() / wsum
+    wnorm = float(np.sqrt((w * wz**2).sum()))
     band = coast_band(binary, None, cfg.band_width)
-    bf = band.astype(np.float64)
-    bzw = bf - bf.mean()
-    bwnorm = float(np.sqrt((bzw**2).sum()))
+    bf = coast_weight(binary, None, cfg.band_width, cfg.band_soft)
+    bzw = bf - (w * bf).sum() / wsum
+    bwnorm = float(np.sqrt((w * bzw**2).sum()))
     mask = 0.0
     if wnorm >= cfg.variance_floor * feats["vnorm"] and wnorm > 0:
-        mask = float(np.clip((wz * feats["vz"]).sum() / (wnorm * feats["vnorm"]), -1, 1))
+        mask = float(np.clip((w * wz * feats["vz"]).sum() / (wnorm * feats["vnorm"]), -1, 1))
     ncc = 0.0
     if feats["bnorm"] > 0 and bwnorm >= cfg.variance_floor * feats["bnorm"] and bwnorm > 0:
-        ncc = float(np.clip((bzw * feats["bz"]).sum() / (bwnorm * feats["bnorm"]), -1, 1))
+        ncc = float(np.clip((w * bzw * feats["bz"]).sum() / (bwnorm * feats["bnorm"]), -1, 1))
     cont, longest = _continuity(feats["coast"], band, feats["run_full"])
     coast = 0.5 * max(0.0, ncc) + 0.5 * cont
     score = (1.0 - cfg.detail_weight) * mask + cfg.detail_weight * coast
@@ -398,10 +404,11 @@ def process_tile(tile):
     mmax = max(v.size for v in variants)
     p = sfft.next_fast_len(n + mmax - 1, real=True)
     world = (2.0 * fraction - 1.0).astype(np.float32)
-    band = coast_band(land, None, cfg.band_width).astype(np.float32)
+    band = coast_weight(land, None, cfg.band_width, cfg.band_soft).astype(np.float32)
     fw = sfft.rfft2(world, s=(p, p))
     fw2 = sfft.rfft2(world * world, s=(p, p))
     fb = sfft.rfft2(band, s=(p, p))
+    fb2 = sfft.rfft2(band * band, s=(p, p))
     best = np.full((n, n), -np.inf, dtype=np.float32)
     best_mask = np.zeros((n, n), dtype=np.float32)
     best_coast = np.zeros((n, n), dtype=np.float32)
@@ -419,8 +426,9 @@ def process_tile(tile):
             sum_w = _corr(fw, fm, p, valid)
             sum_w2 = _corr(fw2, fm, p, valid)
             sum_b = _corr(fb, fm, p, valid)
+            sum_b2 = _corr(fb2, fm, p, valid)
             std_w = np.sqrt(np.maximum(sum_w2 - sum_w**2 / var.count, 0.0))
-            std_b = np.sqrt(np.maximum(sum_b - sum_b**2 / var.count, 0.0))
+            std_b = np.sqrt(np.maximum(sum_b2 - sum_b**2 / var.count, 0.0))
             fp_cache[key] = (std_w, std_b)
         std_w, std_b = fp_cache[key]
         num_w = _corr(fw, sfft.rfft2(var.values, s=(p, p)), p, valid)
@@ -487,7 +495,7 @@ def top_share(scored, raw_score):
     return round(100.0 * min(n, above + 1) / n, 3)
 
 
-COMMON_SCORE = 0.7
+COMMON_SCORE = 0.73
 COMMON_MIN_PCT = 5.0
 
 

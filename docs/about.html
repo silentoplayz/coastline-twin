@@ -61,6 +61,7 @@
     <li><b>Mask agreement.</b> A normalized cross-correlation between the home square, coded land as +1 and water as −1, and the same coding of the candidate window. It is 1.0 when the two grids agree everywhere and near 0 when they are unrelated. Because it is normalized, a square that is mostly water cannot score well against open ocean just by being mostly water too.</li>
     <li><b>Coastline agreement.</b> The same correlation, but between coastline bands: every pixel within two pixels of a land-water boundary, about 2 km. This is the term that stops a straight beach from matching every other straight beach. A straight coast and a straight coast still correlate, but a coast with inlets only correlates with a coast whose inlets sit in the same places.</li>
   </ul>
+  <p>Two refinements make the comparison less brittle. The band is soft: a pixel's weight falls off as a Gaussian with distance from the shoreline, about 2.5 km wide at 1 km resolution, so a shoreline one pixel off costs a little rather than everything. And the square is tapered: pixels in the outer half of the square count progressively less toward the edge, so a match depends on the coast around your dot more than on whatever happens to sit at the square's corners. Measured on twelve coasts with planted near-twins, the two together raised the share of top-ten twins that survive moving the square 5 km from 78% to 81% and widened the worst-case margin over the best false twin by 17%, at no cost in recall (the benchmark is <code>tools/bench.py</code> in the repository).</p>
   <p>The two are blended with a weight you control, half and half by default, and the result is the score.</p>
   <div class="formula">score = (1 − w) · mask + w · coast</div>
 
@@ -87,15 +88,15 @@
   <table>
     <thead><tr><th>Score</th><th>Label</th><th>What it usually means</th></tr></thead>
     <tbody>
-      <tr><td>0.80 and above</td><td>close twin</td><td>The shoreline traces the same course almost everywhere in the square.</td></tr>
-      <tr><td>0.70 to 0.80</td><td>strong</td><td>The outline agrees and much of the detail lines up.</td></tr>
-      <tr><td>0.60 to 0.70</td><td>outline match</td><td>The same general kind of coast, with detail that runs a different course.</td></tr>
-      <tr><td>below 0.60</td><td>loose</td><td>Broad shape only.</td></tr>
+      <tr><td>0.83 and above</td><td>close twin</td><td>The shoreline traces the same course almost everywhere in the square.</td></tr>
+      <tr><td>0.73 to 0.83</td><td>strong</td><td>The outline agrees and much of the detail lines up.</td></tr>
+      <tr><td>0.63 to 0.73</td><td>outline match</td><td>The same general kind of coast, with detail that runs a different course.</td></tr>
+      <tr><td>below 0.63</td><td>loose</td><td>Broad shape only.</td></tr>
     </tbody>
   </table>
   <p>Scores are not comparable across squares. A marsh coast full of creeks can't reach the scores a smooth bay reaches, because nothing matches a maze as closely as a curve matches a curve. Compare matches within a run, and read the two bars on each card: a high mask bar with a low coast bar means the land is in the right place but the shoreline differs.</p>
   <p>The figure that is fair across squares is the one beside each match that reads like "top 0.4% of 41,200 placements". Every local maximum of the score surface counts as a placement, whether or not it cleared the minimum score, and the search keeps a histogram of all of them. A match's raw score, the one it had before the fine-grid and vector stages nudged it, is ranked against that histogram, so the figure says how rare a fit this good was for your particular coast. A marsh that tops out at 0.65 and a bay that reaches 0.85 can both put their best match in the top 0.1% of their runs.</p>
-  <p>The same histogram says whether your coast is a common shape. A straight beach has hundreds of near-perfect twins, so its whole list reads "close twin" and the labels stop separating anything. When at least 5% of all placements in a run score 0.7 or better, the results header and the Why view say so, with the share, so a crowded top of the list is read as a property of the coast rather than of the matches.</p>
+  <p>The same histogram says whether your coast is a common shape. A straight beach has hundreds of near-perfect twins, so its whole list reads "close twin" and the labels stop separating anything. When at least 5% of all placements in a run score 0.73 or better, the results header and the Why view say so, with the share, so a crowded top of the list is read as a property of the coast rather than of the matches.</p>
   <p>The Why view shows the difference between the two squares pixel by pixel, how much of your coastline the match follows within the band, how much of the match's coastline corresponds to yours, and how the matched shoreline is distributed. In Compare, the home coastline is drawn green where the match's shoreline runs within the band and red where it doesn't.</p>
 
   <h2>Filters</h2>

@@ -31,6 +31,8 @@ def build_parser():
     p.add_argument("--min-score", type=float, default=0.5, help="drop peaks below this score")
     p.add_argument("--detail-weight", type=float, default=0.5, help="0 scores land masks only, 1 scores coastline overlap only")
     p.add_argument("--band-px", type=int, default=2, help="how many pixels to widen the coastline band each side")
+    p.add_argument("--band-soft", type=float, default=2.5, help="soft coastline band: Gaussian sigma in pixels around the shoreline, 0 for a hard band")
+    p.add_argument("--taper", type=float, default=0.5, help="fraction of the square's half-width over which pixel weight fades to zero at the edge, 0 for none")
     p.add_argument("--supersample", type=int, default=2, help="sub-samples per pixel edge when rasterizing")
     p.add_argument("--exclude-km", type=float, help="ignore matches this close to home, default 2x side")
     p.add_argument("--min-sep-km", type=float, help="minimum distance between reported matches, default side")
@@ -66,7 +68,7 @@ def main(argv=None):
     flips = [False] if args.no_flip else [False, True]
     workers = args.workers or max(1, min((os.cpu_count() or 2) - 2, 12))
 
-    template = Template(home, center, side_m, res_m, args.supersample, args.band_px, grid=grid, dot_px=dot_px)
+    template = Template(home, center, side_m, res_m, args.supersample, args.band_px, grid=grid, dot_px=dot_px, band_soft=args.band_soft, taper=args.taper)
     stats = template.stats()
     if template.n < 24:
         print(f"warning: the square is only {template.n} px wide at {res_m:.0f} m/px, matches will be coarse")
@@ -93,6 +95,8 @@ def main(argv=None):
         workers=workers,
         supersample=args.supersample,
         band_width=args.band_px,
+        band_soft=args.band_soft,
+        taper=args.taper,
         detail_weight=args.detail_weight,
         rot_step=args.rot_step,
         rot_max=args.rot_max,
@@ -209,6 +213,8 @@ def main(argv=None):
         "stats": stats,
         "detail_weight": cfg.detail_weight,
         "band_px": cfg.band_width,
+        "band_soft": cfg.band_soft,
+        "taper": cfg.taper,
         "supersample": cfg.supersample,
         "filters": {
             "bbox": cfg.bbox,

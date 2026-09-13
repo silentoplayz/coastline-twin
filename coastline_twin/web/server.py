@@ -543,10 +543,10 @@ def vector_window(req: VectorWindowRequest):
     _mask()
     if custom:
         grid = np.array([ch == "1" for ch in custom["land"]], dtype=bool).reshape(custom["n"], custom["n"])
-        template = Template(None, None, side_m, float(tpl["res_m"]), grid=grid, dot_px=custom.get("dot"))
+        template = Template(None, None, side_m, float(tpl["res_m"]), grid=grid, dot_px=custom.get("dot"), taper=float(meta["meta"].get("taper") or 0))
     else:
-        template = Template(tuple(tpl["home"]), tuple(tpl["center"]), side_m, float(tpl["res_m"]))
-    cfg = SearchConfig(res_m=float(tpl["res_m"]), tile_half_m=0, min_score=0, nms_px=3, per_tile=1, home=None, exclude_km=0, min_sep_km=0, top=1, bbox=None, lat_band=None, same_hemisphere=False, workers=1, band_width=int((meta["meta"].get("band_px") or 2)))
+        template = Template(tuple(tpl["home"]), tuple(tpl["center"]), side_m, float(tpl["res_m"]), taper=float(meta["meta"].get("taper") or 0))
+    cfg = SearchConfig(res_m=float(tpl["res_m"]), tile_half_m=0, min_score=0, nms_px=3, per_tile=1, home=None, exclude_km=0, min_sep_km=0, top=1, bbox=None, lat_band=None, same_hemisphere=False, workers=1, band_width=int((meta["meta"].get("band_px") or 2)), band_soft=float(meta["meta"].get("band_soft") or 0), taper=float(meta["meta"].get("taper") or 0))
     cache_dir = RESULTS / ".tilecache"
     vt = VectorTemplate(template, cfg, cache_dir)
     frame = LocalFrame(match["center_lat"], match["center_lon"])

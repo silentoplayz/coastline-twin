@@ -10,6 +10,7 @@ import numpy as np
 from matplotlib.colors import ListedColormap
 
 from .geo import LocalFrame, grid_coords, is_land
+from .search import COMMON_SCORE
 from .template import forward
 
 LAND_WATER = ListedColormap(["#9ecae1", "#d9c9a3"])
@@ -182,7 +183,7 @@ def scored_note(meta):
         return ""
     note = f" Every local maximum of the score surface counts as a placement: {scored['n']:,} were scored, and each match's Top column says how far up that list its raw score sits."
     if scored.get("common_pct") is not None:
-        note += f" This is a common shape: {scored['common_pct']}% of all placements score 0.7 or better, so close twins are easy to find and the top of the list is crowded."
+        note += f" This is a common shape: {scored['common_pct']}% of all placements score {COMMON_SCORE} or better, so close twins are easy to find and the top of the list is crowded."
     return note
 
 

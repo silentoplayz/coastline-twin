@@ -272,8 +272,12 @@ Work through these in order.
 
 The self-match, home against itself, scores about 0.9 rather than 1.0 because
 the search grid is offset from the home grid by a fraction of a pixel. Anything
-above 0.8 is a close twin. Between 0.7 and 0.8 the broad shape agrees and some
-detail lines up. Below 0.7 you are looking at the same general kind of coast.
+above 0.83 is a close twin. Between 0.73 and 0.83 the broad shape agrees and
+some detail lines up. Below 0.73 you are looking at the same general kind of
+coast. The coastline band is soft (a Gaussian about 2.5 km wide) and the square
+is tapered toward its edges; `--band-soft 0 --taper 0` restores the hard band
+and the flat square. `tools/bench.py` measures any matcher change on twelve
+coasts with planted near-twins and a 5 km center shift.
 
 Every match also reports where it sits in its own run: "top 0.4% of 41,200
 placements" means the search scored 41,200 distinct coastal placements (every
@@ -285,7 +289,7 @@ reaches 0.85 can both be in the top 0.1% of their runs. The JSON carries it as
 
 The same histogram flags a common shape. A straight beach has hundreds of
 near-perfect twins, so every match reads "close twin" and the labels stop
-separating anything. When at least 5 percent of all placements score 0.7 or
+separating anything. When at least 5 percent of all placements score 0.73 or
 better, the results header, the Why view, and the CLI say so with the share.
 
 Smaller scales win more often than they should, because a 0.8x window has

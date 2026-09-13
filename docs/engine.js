@@ -176,6 +176,49 @@ function continuity(homeCoast, matchBand, n, runFull) {
   return { continuity: acc / total, longest, matched: matchedCount / total };
 }
 
+function taperAt(px, py, halfM, taper) {
+  if (!(taper > 0)) return 1;
+  const r = Math.max(Math.abs(px), Math.abs(py)) / halfM;
+  const t = Math.min(1, Math.max(0, (r - (1 - taper)) / taper));
+  return 0.5 * (1 + Math.cos(Math.PI * t));
+}
+function taperGrid(n, resM, halfM, taper) {
+  const w = new Float64Array(n * n);
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) w[r * n + c] = taperAt(-halfM + (c + 0.5) * resM, halfM - (r + 0.5) * resM, halfM, taper);
+  return w;
+}
+function coastWeight(binary, valid, n, width, soft) {
+  if (!(soft > 0)) return Float64Array.from(coastBand(binary, valid, n, width));
+  const core = coastBand(binary, valid, n, 0);
+  const dist = new Float64Array(n * n).fill(Infinity);
+  for (let k = 0; k < n * n; k++) if (core[k]) dist[k] = 0;
+  let cur = core;
+  const reach = Math.ceil(3 * soft);
+  for (let step = 1; step <= reach; step++) {
+    const next = new Uint8Array(cur);
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
+      if (!cur[r * n + c]) continue;
+      for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
+        const rr = r + dr, cc = c + dc;
+        if (rr >= 0 && rr < n && cc >= 0 && cc < n && !next[rr * n + cc]) { next[rr * n + cc] = 1; dist[rr * n + cc] = step; }
+      }
+    }
+    cur = next;
+  }
+  const w = new Float64Array(n * n);
+  for (let k = 0; k < n * n; k++) { const d = dist[k] / soft; w[k] = isFinite(d) ? Math.exp(-d * d) : 0; }
+  if (valid) for (let k = 0; k < n * n; k++) if (!valid[k]) w[k] = 0;
+  return w;
+}
+function zeroMeanW(values, w, n) {
+  let sum = 0, wsum = 0;
+  for (let k = 0; k < n * n; k++) { sum += w[k] * values[k]; wsum += w[k]; }
+  const mean = wsum ? sum / wsum : 0;
+  const out = new Float64Array(n * n);
+  let norm = 0;
+  for (let k = 0; k < n * n; k++) { out[k] = w[k] ? values[k] - mean : 0; norm += w[k] * out[k] * out[k]; }
+  return { values: out, norm: Math.sqrt(norm), count: wsum, mean };
+}
 function zeroMean(values, valid, n) {
   let sum = 0, count = 0;
   for (let k = 0; k < n * n; k++) if (!valid || valid[k]) { sum += values[k]; count++; }
@@ -260,6 +303,7 @@ function buildVariant(t, p, index, theta, flip, scale) {
   const subs = [];
   for (let k = 0; k < ss; k++) subs.push(((k + 0.5) / ss - 0.5) * t.resM);
   const inside = new Uint8Array(m * m);
+  const weights = new Float64Array(m * m);
   const frac = new Float64Array(m * m);
   let count = 0;
   for (let r = 0; r < m; r++) {
@@ -271,7 +315,8 @@ function buildVariant(t, p, index, theta, flip, scale) {
       if (Math.abs(px) > t.halfM || Math.abs(py) > t.halfM) continue;
       const k = r * m + col;
       inside[k] = 1;
-      count++;
+      weights[k] = taperAt(px, py, t.halfM, p.taper || 0);
+      count += weights[k];
       let acc = 0;
       for (const du of subs) for (const dv of subs) {
         const qx = qx0 + du, qy = qy0 + dv;
@@ -285,11 +330,12 @@ function buildVariant(t, p, index, theta, flip, scale) {
   const vals = new Float64Array(m * m);
   const bin = new Uint8Array(m * m);
   for (let k = 0; k < m * m; k++) { vals[k] = 2 * frac[k] - 1; bin[k] = frac[k] >= 0.5 ? 1 : 0; }
-  const zm = zeroMean(vals, inside, m);
-  const band = coastBand(bin, inside, m, p.band_px);
-  const bandF = Float64Array.from(band);
-  const bz = zeroMean(bandF, inside, m);
-  return { index, theta, flip, scale, m, inside, values: zm.values, norm: zm.norm, band: bz.values, bandNorm: bz.norm, count };
+  const zm = zeroMeanW(vals, weights, m);
+  const bandF = coastWeight(bin, inside, m, p.band_px, (p.band_soft || 0) * p.fine_res / t.resM);
+  const bz = zeroMeanW(bandF, weights, m);
+  const values = new Float64Array(m * m), band = new Float64Array(m * m);
+  for (let k = 0; k < m * m; k++) { values[k] = weights[k] * zm.values[k]; band[k] = weights[k] * bz.values[k]; }
+  return { index, theta, flip, scale, m, inside, weights, values, norm: zm.norm, band, bandNorm: bz.norm, count };
 }
 
 function buildVariants(t, p) {
@@ -437,13 +483,14 @@ async function prepare(p) {
   const coarse = buildTemplate(p, coarseRes);
   const variants = buildVariants(coarse, p);
   const fineBand = coastBand(fine.land, null, fine.n, p.band_px);
+  const fineW = taperGrid(fine.n, fine.resM, fine.halfM, p.taper || 0);
   const fineVals = new Float64Array(fine.n * fine.n);
   for (let k = 0; k < fineVals.length; k++) fineVals[k] = 2 * fine.frac[k] - 1;
-  const fz = zeroMean(fineVals, null, fine.n);
-  const fb = zeroMean(Float64Array.from(fineBand), null, fine.n);
+  const fz = zeroMeanW(fineVals, fineW, fine.n);
+  const fb = zeroMeanW(coastWeight(fine.land, null, fine.n, p.band_px, p.band_soft || 0), fineW, fine.n);
   const fineCoast = coastBand(fine.land, null, fine.n, 0);
   VT = null;
-  CTX = { p, fine, coarse, variants, fineZ: fz, fineB: fb, fineBand, fineCoast, runFull: Math.max(8, Math.round(fine.n / 2)) };
+  CTX = { p, fine, coarse, variants, fineZ: fz, fineB: fb, fineBand, fineCoast, fineW, runFull: Math.max(8, Math.round(fine.n / 2)) };
   return { fine, coarse, variants };
 }
 
@@ -465,16 +512,19 @@ function processTile(tile) {
   const len = P * P;
   const world = new Float64Array(N * N), world2 = new Float64Array(N * N), bandW = new Uint8Array(N * N);
   for (let k = 0; k < N * N; k++) { world[k] = 2 * frac[k] - 1; world2[k] = world[k] * world[k]; bandW[k] = frac[k] >= 0.5 ? 1 : 0; }
-  const band = Float64Array.from(coastBand(bandW, null, N, p.band_px));
+  const band = coastWeight(bandW, null, N, p.band_px, (p.band_soft || 0) * p.fine_res / res);
+  const band2 = new Float64Array(N * N);
+  for (let k = 0; k < N * N; k++) band2[k] = band[k] * band[k];
   const F = fft(P);
   const zre = new Float64Array(len), zim = new Float64Array(len);
   pad(world, N, P, zre); pad(world2, N, P, zim);
   F.transform(zre, zim, false);
   const FWre = new Float64Array(len), FWim = new Float64Array(len), FW2re = new Float64Array(len), FW2im = new Float64Array(len);
   unpackTwoReal(zre, zim, P, FWre, FWim, FW2re, FW2im);
-  const FBre = new Float64Array(len), FBim = new Float64Array(len);
-  pad(band, N, P, FBre); FBim.fill(0);
-  F.transform(FBre, FBim, false);
+  const FBre = new Float64Array(len), FBim = new Float64Array(len), FB2re = new Float64Array(len), FB2im = new Float64Array(len);
+  pad(band, N, P, zre); pad(band2, N, P, zim);
+  F.transform(zre, zim, false);
+  unpackTwoReal(zre, zim, P, FBre, FBim, FB2re, FB2im);
 
   const best = new Float32Array(N * N).fill(-Infinity);
   const bestVar = new Int16Array(N * N).fill(-1);
@@ -489,7 +539,7 @@ function processTile(tile) {
     if (valid <= 0) continue;
     const key = `${v.theta}|${v.scale}`;
     if (!keyCache.has(key)) {
-      pad(Float64Array.from(v.inside), m, P, tre); tim.fill(0);
+      pad(v.weights, m, P, tre); tim.fill(0);
       F.transform(tre, tim, false);
       for (let k = 0; k < len; k++) {
         const a = FWre[k] * tre[k] + FWim[k] * tim[k], b = FWim[k] * tre[k] - FWre[k] * tim[k];
@@ -498,13 +548,17 @@ function processTile(tile) {
       }
       F.transform(xre, xim, true);
       const sumW = crop(xre, P, valid), sumW2 = crop(xim, P, valid);
-      mulConj(FBre, FBim, tre, tim, xre, xim, len);
+      for (let k = 0; k < len; k++) {
+        const a = FBre[k] * tre[k] + FBim[k] * tim[k], b = FBim[k] * tre[k] - FBre[k] * tim[k];
+        const c2 = FB2re[k] * tre[k] + FB2im[k] * tim[k], d2 = FB2im[k] * tre[k] - FB2re[k] * tim[k];
+        xre[k] = a - d2; xim[k] = b + c2;
+      }
       F.transform(xre, xim, true);
-      const sumB = crop(xre, P, valid);
+      const sumB = crop(xre, P, valid), sumB2 = crop(xim, P, valid);
       const stdW = new Float64Array(valid * valid), stdB = new Float64Array(valid * valid);
       for (let k = 0; k < valid * valid; k++) {
         stdW[k] = Math.sqrt(Math.max(sumW2[k] - sumW[k] * sumW[k] / v.count, 0));
-        stdB[k] = Math.sqrt(Math.max(sumB[k] - sumB[k] * sumB[k] / v.count, 0));
+        stdB[k] = Math.sqrt(Math.max(sumB2[k] - sumB[k] * sumB[k] / v.count, 0));
       }
       keyCache.set(key, { stdW, stdB });
     }
@@ -606,21 +660,21 @@ function windowFromGrid(lg, t, theta, flip, scale, dx, dy, ss) {
 }
 
 function scoreWindow(frac, n, p) {
-  const { fineZ, fineB, fineCoast, runFull } = CTX;
+  const { fineZ, fineB, fineCoast, fineW, runFull } = CTX;
   const vals = new Float64Array(n * n), bin = new Uint8Array(n * n);
   for (let k = 0; k < n * n; k++) { vals[k] = 2 * frac[k] - 1; bin[k] = frac[k] >= 0.5 ? 1 : 0; }
-  const wz = zeroMean(vals, null, n);
+  const wz = zeroMeanW(vals, fineW, n);
   const band = coastBand(bin, null, n, p.band_px);
-  const bz = zeroMean(Float64Array.from(band), null, n);
+  const bz = zeroMeanW(coastWeight(bin, null, n, p.band_px, p.band_soft || 0), fineW, n);
   let mask = 0, ncc = 0;
   if (wz.norm >= p.variance_floor * fineZ.norm && wz.norm > 0) {
     let num = 0;
-    for (let k = 0; k < n * n; k++) num += wz.values[k] * fineZ.values[k];
+    for (let k = 0; k < n * n; k++) num += fineW[k] * wz.values[k] * fineZ.values[k];
     mask = Math.max(-1, Math.min(1, num / (wz.norm * fineZ.norm)));
   }
   if (fineB.norm > 0 && bz.norm >= p.variance_floor * fineB.norm && bz.norm > 0) {
     let num = 0;
-    for (let k = 0; k < n * n; k++) num += bz.values[k] * fineB.values[k];
+    for (let k = 0; k < n * n; k++) num += fineW[k] * bz.values[k] * fineB.values[k];
     ncc = Math.max(-1, Math.min(1, num / (bz.norm * fineB.norm)));
   }
   const runs = continuity(fineCoast, band, n, runFull);
@@ -921,15 +975,16 @@ async function vectorTemplate(p) {
     land = (await landGrid(makeFrame(p.center.lat, p.center.lon), halfM, resM)).land;
   }
   const bandPx = Math.max(1, Math.round(p.band_px * p.fine_res / resM));
+  const softPx = (p.band_soft || 0) * p.fine_res / resM;
+  const w = taperGrid(n, resM, halfM, p.taper || 0);
   const vals = new Float64Array(n * n);
   for (let k = 0; k < n * n; k++) vals[k] = land[k] ? 1 : -1;
-  const vz = zeroMean(vals, null, n);
+  const vz = zeroMeanW(vals, w, n);
   const coast = edgePixels(land, n);
-  const band = dilateSquare(coast, n, bandPx);
-  const bz = zeroMean(Float64Array.from(band), null, n);
+  const bz = zeroMeanW(coastWeight(land, null, n, bandPx, softPx), w, n);
   const px = new Float64Array(n), py = new Float64Array(n);
   for (let i = 0; i < n; i++) { px[i] = -halfM + (i + 0.5) * resM; py[i] = halfM - (i + 0.5) * resM; }
-  VT = { n, resM, halfM, bandPx, runFull: Math.max(8, n >> 1), land, vz, coast, bz, px, py, dot: fine.dot };
+  VT = { n, resM, halfM, bandPx, softPx, w, runFull: Math.max(8, n >> 1), land, vz, coast, bz, px, py, dot: fine.dot };
   return VT;
 }
 
@@ -937,18 +992,19 @@ function scoreVector(vt, win, p) {
   const n = vt.n;
   const vals = new Float64Array(n * n);
   for (let k = 0; k < n * n; k++) vals[k] = win[k] ? 1 : -1;
-  const wz = zeroMean(vals, null, n);
+  const w = vt.w;
+  const wz = zeroMeanW(vals, w, n);
   const band = dilateSquare(edgePixels(win, n), n, vt.bandPx);
-  const bz = zeroMean(Float64Array.from(band), null, n);
+  const bz = zeroMeanW(coastWeight(win, null, n, vt.bandPx, vt.softPx), w, n);
   let mask = 0, ncc = 0;
   if (wz.norm >= p.variance_floor * vt.vz.norm && wz.norm > 0) {
     let num = 0;
-    for (let k = 0; k < n * n; k++) num += wz.values[k] * vt.vz.values[k];
+    for (let k = 0; k < n * n; k++) num += w[k] * wz.values[k] * vt.vz.values[k];
     mask = Math.max(-1, Math.min(1, num / (wz.norm * vt.vz.norm)));
   }
   if (vt.bz.norm > 0 && bz.norm >= p.variance_floor * vt.bz.norm && bz.norm > 0) {
     let num = 0;
-    for (let k = 0; k < n * n; k++) num += bz.values[k] * vt.bz.values[k];
+    for (let k = 0; k < n * n; k++) num += w[k] * bz.values[k] * vt.bz.values[k];
     ncc = Math.max(-1, Math.min(1, num / (bz.norm * vt.bz.norm)));
   }
   const runs = continuity(vt.coast, band, n, vt.runFull);

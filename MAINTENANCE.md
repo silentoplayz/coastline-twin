@@ -46,6 +46,16 @@ implemented. `docs/app.js` and `coastline_twin/web/static/app.js` share
 almost all of their code; the local copy differs only in how it talks to
 the server.
 
+## Changing the matcher
+
+Run `python -m tools.bench --name before` on the current code and
+`--name after` on the change, then compare the SUMMARY lines: planted
+near-twins found at rank 1, the mean and minimum margin over the best false
+twin, and the share of top-ten twins that survive a 5 km shift of the
+square. Every scoring change goes into `docs/engine.js` and
+`coastline_twin/search.py` alike, and the About page's method text
+describes what ships.
+
 ## How to check the app is healthy
 
 1. Open the site, drop a pin on any coast, run a 60 km search limited to

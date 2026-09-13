@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw
 
-from .geo import LocalFrame
+from .geo import LocalFrame, coast_weight
 from .template import describe_mirror, forward
 
 TILEJSON = "https://tiles.openfreemap.org/planet"
@@ -234,28 +234,34 @@ class VectorTemplate:
             self.land = template.land_xy(u, v)
         else:
             self.land, _, _ = land_grid(template.frame, self.half_m, self.res_m, cache_dir)
-        vals = np.where(self.land, 1.0, -1.0)
-        self.vz = vals - vals.mean()
-        self.vnorm = float(np.sqrt((self.vz**2).sum()))
-        band = _coast_band(self.land, self.band_px).astype(np.float64)
-        self.bz = band - band.mean()
-        self.bnorm = float(np.sqrt((self.bz**2).sum()))
-        self.coast = _coast_band(self.land, 0)
         self.px = (np.arange(self.n) + 0.5) * self.res_m - self.half_m
         self.py = self.half_m - (np.arange(self.n) + 0.5) * self.res_m
+        self.soft_px = cfg.band_soft * cfg.res_m / self.res_m
+        u, v = np.meshgrid(self.px, self.py)
+        self.w = template.taper_at(u, v)
+        wsum = self.w.sum()
+        vals = np.where(self.land, 1.0, -1.0)
+        self.vz = vals - (self.w * vals).sum() / wsum
+        self.vnorm = float(np.sqrt((self.w * self.vz**2).sum()))
+        band = coast_weight(self.land, None, self.band_px, self.soft_px)
+        self.bz = band - (self.w * band).sum() / wsum
+        self.bnorm = float(np.sqrt((self.w * self.bz**2).sum()))
+        self.coast = _coast_band(self.land, 0)
         self.dot_xy = template.dot_xy
 
 
 def _score(vt, land_window, cfg):
+    w = vt.w
+    wsum = w.sum()
     vals = np.where(land_window, 1.0, -1.0)
-    wz = vals - vals.mean()
-    wnorm = float(np.sqrt((wz**2).sum()))
+    wz = vals - (w * vals).sum() / wsum
+    wnorm = float(np.sqrt((w * wz**2).sum()))
     band = _coast_band(land_window, vt.band_px)
-    bf = band.astype(np.float64)
-    bzw = bf - bf.mean()
-    bwnorm = float(np.sqrt((bzw**2).sum()))
-    mask = float(np.clip((wz * vt.vz).sum() / (wnorm * vt.vnorm), -1, 1)) if wnorm >= cfg.variance_floor * vt.vnorm and wnorm > 0 else 0.0
-    ncc = float(np.clip((bzw * vt.bz).sum() / (bwnorm * vt.bnorm), -1, 1)) if vt.bnorm > 0 and bwnorm >= cfg.variance_floor * vt.bnorm and bwnorm > 0 else 0.0
+    bf = coast_weight(land_window, None, vt.band_px, vt.soft_px)
+    bzw = bf - (w * bf).sum() / wsum
+    bwnorm = float(np.sqrt((w * bzw**2).sum()))
+    mask = float(np.clip((w * wz * vt.vz).sum() / (wnorm * vt.vnorm), -1, 1)) if wnorm >= cfg.variance_floor * vt.vnorm and wnorm > 0 else 0.0
+    ncc = float(np.clip((w * bzw * vt.bz).sum() / (bwnorm * vt.bnorm), -1, 1)) if vt.bnorm > 0 and bwnorm >= cfg.variance_floor * vt.bnorm and bwnorm > 0 else 0.0
     cont, longest = _continuity(vt.coast, band, vt.run_full)
     coast = 0.5 * max(0.0, ncc) + 0.5 * cont
     return {"score": (1.0 - cfg.detail_weight) * mask + cfg.detail_weight * coast, "mask": mask, "coast": coast, "ncc": ncc, "continuity": cont, "longest": longest}
