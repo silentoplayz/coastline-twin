@@ -34,12 +34,102 @@
   };
   const DEM = { type: "raster-dem", tiles: ["https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"], encoding: "terrarium", tileSize: 256, maxzoom: 15, attribution: "Elevation: Mapzen Terrain Tiles on AWS" };
   const LAYERS_KEY = "coastline-twin-layers";
-  const layerPrefs = { basemap: "auto", hillshade: false, terrain: false, mask: false };
+  const layerPrefs = { basemap: "auto", hillshade: false, terrain: false, mask: false, details: "everything", groups: { borders: true, places: true, roads: true, transit: true, landmarks: true, water: true } };
   try { Object.assign(layerPrefs, JSON.parse(localStorage.getItem(LAYERS_KEY) || "{}")); } catch (e) {}
   if (!BASEMAPS[layerPrefs.basemap]) layerPrefs.basemap = "auto";
   function saveLayerPrefs() { try { localStorage.setItem(LAYERS_KEY, JSON.stringify(layerPrefs)); } catch (e) {} }
   function rasterStyle(r) {
     return { version: 8, sources: { basemap: { type: "raster", tiles: r.tiles, tileSize: 256, maxzoom: r.maxzoom, attribution: r.attribution } }, layers: [{ id: "basemap", type: "raster", source: "basemap" }] };
+  }
+  const DETAIL_GROUPS = [
+    ["borders", "Borders and labels"], ["places", "Places"], ["roads", "Roads"], ["transit", "Transit"], ["landmarks", "Landmarks"], ["water", "Water"],
+  ];
+  const DETAIL_PRESETS = {
+    clean: { name: "Clean", text: "No borders, labels, places, or roads.", groups: [] },
+    exploration: { name: "Exploration", text: "Borders, labels, places, and roads.", groups: ["borders", "places", "roads"] },
+    everything: { name: "Everything", text: "All borders, labels, places, roads, transit, landmarks, and water.", groups: DETAIL_GROUPS.map(([k]) => k) },
+    custom: { name: "Custom", text: "Choose your own look and feel." },
+  };
+  function groupOf(layer) {
+    const sl = layer["source-layer"], id = layer.id || "";
+    if (!sl) return null;
+    if (sl === "boundary" || sl === "place") return "borders";
+    if (sl === "aeroway" || sl === "aerodrome_label" || id === "poi_transit") return "transit";
+    if (sl === "poi") return "places";
+    if (sl === "transportation" || sl === "transportation_name") return /rail|transit|ferry|aerialway/.test(id) ? "transit" : "roads";
+    if (sl === "park" || sl === "building") return "landmarks";
+    if (sl === "waterway" || sl === "water_name") return "water";
+    return null;
+  }
+  const details = { original: new Map(), seq: 0 };
+  function detailsSupported() { return layerPrefs.basemap !== "topo"; }
+  function applyDetails() {
+    if (!webgl || !detailsSupported()) return;
+    let style = null;
+    try { style = map.getStyle(); } catch (e) { return; }
+    if (!style || !style.layers) return;
+    for (const layer of style.layers) {
+      const g = groupOf(layer);
+      if (!g || !map.getLayer(layer.id)) continue;
+      if (!details.original.has(layer.id)) details.original.set(layer.id, (layer.layout && layer.layout.visibility) || "visible");
+      map.setLayoutProperty(layer.id, "visibility", layerPrefs.groups[g] ? details.original.get(layer.id) : "none");
+    }
+  }
+  let overlayStylePromise = null;
+  function loadOverlayStyle() {
+    if (!overlayStylePromise) overlayStylePromise = fetch(BASEMAPS.liberty.style).then((r) => r.json()).catch((e) => { overlayStylePromise = null; throw e; });
+    return overlayStylePromise;
+  }
+  function ensureSatelliteOverlay() {
+    if (layerPrefs.basemap !== "satellite") return Promise.resolve();
+    const seq = details.seq;
+    return loadOverlayStyle().then((st) => {
+      if (seq !== details.seq || !map.getLayer("hillshade")) return;
+      for (const [id, src] of Object.entries(st.sources || {})) if (src.type === "vector" && !map.getSource(id)) map.addSource(id, src);
+      if (st.glyphs && map.setGlyphs) map.setGlyphs(st.glyphs);
+      if (st.sprite && map.setSprite) map.setSprite(st.sprite);
+      for (const layer of st.layers) {
+        if (!groupOf(layer) || map.getLayer(layer.id)) continue;
+        if (layer.type === "line") map.addLayer(layer, "hillshade");
+        else if (layer.type === "symbol") map.addLayer(layer, "home-square");
+      }
+    }).catch(() => {});
+  }
+  function refreshDetailsUI() {
+    const group = $("details-group");
+    if (!group) return;
+    const ok = detailsSupported();
+    $("details-note").hidden = ok;
+    $("details-presets").hidden = !ok;
+    $("details-custom").hidden = !ok || layerPrefs.details !== "custom";
+    for (const el of $("details-presets").querySelectorAll("input")) el.checked = el.value === layerPrefs.details;
+    for (const el of $("details-custom").querySelectorAll("input")) el.checked = !!layerPrefs.groups[el.dataset.group];
+  }
+  function buildDetailsPanel() {
+    const presets = $("details-presets"), custom = $("details-custom");
+    if (!presets) return;
+    for (const [key, p] of Object.entries(DETAIL_PRESETS)) {
+      const label = document.createElement("label");
+      label.className = "details-preset";
+      label.innerHTML = `<span class="text">${p.name}<small>${p.text}</small></span><input type="radio" name="details" value="${key}">`;
+      label.querySelector("input").addEventListener("change", () => {
+        layerPrefs.details = key;
+        if (p.groups) for (const [g] of DETAIL_GROUPS) layerPrefs.groups[g] = p.groups.includes(g);
+        saveLayerPrefs(); applyDetails(); refreshDetailsUI();
+      });
+      presets.appendChild(label);
+    }
+    for (const [g, name] of DETAIL_GROUPS) {
+      const label = document.createElement("label");
+      label.innerHTML = `<input type="checkbox" data-group="${g}"> ${name}`;
+      label.querySelector("input").addEventListener("change", (e) => {
+        layerPrefs.groups[g] = e.target.checked;
+        layerPrefs.details = "custom";
+        saveLayerPrefs(); applyDetails(); refreshDetailsUI();
+      });
+      custom.appendChild(label);
+    }
+    refreshDetailsUI();
   }
   function styleKey(scheme) { return layerPrefs.basemap === "auto" ? `auto:${scheme}` : layerPrefs.basemap; }
   function styleFor(scheme) {
@@ -159,6 +249,8 @@
     map.on("load", () => { updateStatus(null); updateScale(); });
   }
   map.on("style.load", () => {
+    details.seq++;
+    details.original = new Map();
     map.setProjection({ type: "globe" });
     if (map.setSky) map.setSky({ "atmosphere-blend": ["interpolate", ["linear"], ["zoom"], 0, 0.9, 5, 0.9, 7, 0] });
     const firstSymbol = (map.getStyle().layers.find((l) => l.type === "symbol") || {}).id;
@@ -178,6 +270,9 @@
       if (!map.getLayer(id)) map.addLayer({ id, type: "line", source: id, paint });
     }
     if (!map.getLayer("bbox-fill")) map.addLayer({ id: "bbox-fill", type: "fill", source: "bbox", paint: { "fill-color": "#1f77b4", "fill-opacity": 0.05 } }, "bbox");
+    ensureSatelliteOverlay().then(applyDetails);
+    applyDetails();
+    refreshDetailsUI();
   });
   async function fetchMaskImage(req) {
     return `/api/mask.png?w=${req.w}&s=${req.s}&e=${req.e}&n=${req.n}&width=${req.width}&height=${req.height}`;
@@ -214,6 +309,7 @@
     if (map.getSource("dem-terrain")) map.setTerrain(layerPrefs.terrain ? { source: "dem-terrain", exaggeration: 1.2 } : null);
     if (layerPrefs.mask) refreshMask();
     applyTiles();
+    refreshDetailsUI();
   }
   function terrainToggled(on) {
     $("terrain-hint").hidden = !on;
@@ -254,6 +350,7 @@
     document.addEventListener("click", () => { panel.hidden = true; button.setAttribute("aria-expanded", "false"); });
   }
   buildLayersPanel();
+  buildDetailsPanel();
   function setOverlay(id, features) {
     overlays[id] = { type: "FeatureCollection", features };
     const src = map.getSource(id);

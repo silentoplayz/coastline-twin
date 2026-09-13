@@ -213,6 +213,11 @@
       <button type="button" id="layers-button" class="ghost" aria-expanded="false" aria-controls="layers-panel">Layers</button>
       <div id="layers-panel" class="layers-panel" hidden>
         <div class="layers-group"><b>Basemap</b><div id="basemap-options" class="layers-options"></div></div>
+        <div class="layers-group" id="details-group"><b>Details</b>
+          <div id="details-presets" class="details-presets"></div>
+          <div id="details-custom" class="layers-options details-custom" hidden></div>
+          <p id="details-note" class="muted small layers-hint" hidden>Topographic tiles carry their own labels and roads, so there is nothing to switch off.</p>
+        </div>
         <div class="layers-group"><b>Overlays</b><div class="layers-options">
           <label><input type="checkbox" id="layer-hillshade"> Hillshade</label>
           <label><input type="checkbox" id="layer-terrain"> 3D terrain</label>

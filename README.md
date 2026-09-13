@@ -149,8 +149,12 @@ What the page does:
   the five OpenFreeMap vector styles (Light, Dark, Streets, Bright, Fiord),
   OpenTopoMap, and Esri satellite imagery, none of which need an API key. Overlays: hillshade and 3D terrain from Mapzen elevation
   tiles on AWS, and the 1 km land mask the matcher actually sees, drawn over
-  the map so you can check what counts as water, lakes included. The choice
-  is remembered and the Compare view uses the same basemap.
+  the map so you can check what counts as water, lakes included. Details
+  presets (Clean, Exploration, Everything, Custom) switch borders and labels,
+  places, roads, transit, landmarks, and water names on or off, on every
+  vector basemap and, drawn from the Streets style, over the satellite
+  imagery too. The choice is remembered and the Compare view uses the same
+  basemap.
 - **Runs.** Every run is kept under `results/` and listed in the Runs dialog,
   where you can reopen or delete it. A run that is still going when you reload
   the page reattaches automatically.
