@@ -78,7 +78,7 @@
   </ul>
 
   <h2>Sharpening with vector coastlines</h2>
-  <p>The land mask cannot see anything narrower than a kilometer. After the search, the top twenty matches are re-scored against shorelines built from OpenFreeMap's vector tiles, at about 250 m: the water polygons in a few zoom-9 tiles around each match are rasterized into a grid, and the same is done for the home square. Ocean, lakes, rivers, and ponds all count as water, so tidal creeks and river mouths appear that the mask never had. Each match is nudged by up to two degrees and a few hundred meters, scored with the same terms, and the list is re-ranked. The Compare and Why views use these 250 m grids as well.</p>
+  <p>The land mask cannot see anything narrower than a kilometer. After the search, the top twenty matches are re-scored against shorelines built from OpenFreeMap's vector tiles, at a resolution that scales with the square, from 150 m for a 60 km square to 250 m at 100 km and 500 m at 200 km: the water polygons in a few zoom-9 tiles around each match are rasterized into a grid, and the same is done for the home square. Ocean, lakes, rivers, and ponds all count as water, so tidal creeks and river mouths appear that the mask never had. Each match is nudged by up to two degrees and a few hundred meters, scored with the same terms, and the list is re-ranked. The Compare and Why views use these 250 m grids as well.</p>
   <p>This is the one stage that fetches map data during a search: roughly 10 MB of tiles for twenty matches, cached after the first run. If the tiles can't be reached, matches keep their 1 km scores and the page says so.</p>
 
   <h2>Reading the numbers</h2>
@@ -108,16 +108,21 @@
     <li>Place names come from the nearest named place to the landing dot, which is sometimes an island or a district rather than a town.</li>
   </ul>
 
+  <h2>The map</h2>
+  <p>The map is a MapLibre globe that flattens to a mercator map as you zoom in. The globe button at the top left switches to the flat map at any zoom and the choice survives basemap and theme changes. Fully zoomed out the globe fills about a third of the view, and the space behind it is a star field that turns with the bearing, drifts as you pan, and lifts as you tilt.</p>
+  <p>Under Layers, the basemap picker offers five OpenFreeMap vector styles, OpenTopoMap, and Esri satellite imagery. A Details section works like the one in Google Earth: Clean, Exploration, Everything, or Custom, where Custom exposes six groups: borders and labels, places, roads, transit, landmarks, and water names. The groups are matched by the OpenMapTiles layer names every OpenFreeMap style shares, so one setting applies to all five vector styles. Over the satellite imagery the same groups are drawn from the Streets style. OpenTopoMap has its labels baked into its tiles, so the section is not offered there. Three overlays sit beneath: hillshade, 3D terrain from Mapzen elevation tiles, and the 1 km land mask the matcher sees. Turning terrain on tilts the view when you are zoomed in past level 8, since relief is invisible from straight above.</p>
+  <p>The readout at the bottom right follows the cursor: a scale bar for the current view, the coordinates under the pointer in degrees, minutes, and seconds, the ground elevation there, read from the Mapzen tile under the pointer, and the eye altitude, the camera height implied by the zoom, the latitude, and the map's field of view. Off the globe, only the scale and the eye altitude remain.</p>
+
   <h2>Data sources and licenses</h2>
   <table>
     <thead><tr><th>Data</th><th>Used for</th><th>Source and license</th></tr></thead>
     <tbody>
       <tr><td>Global land mask, 30 arc-second</td><td>The search itself; the preview; the land-mask overlay</td><td>GLOBE elevation data, public domain, via the <a href="https://github.com/toddkarin/global-land-mask">global-land-mask</a> package (MIT). Shipped as 376 one-bit PNG tiles, 1.3 MB.</td></tr>
-      <tr><td>OpenFreeMap vector tiles</td><td>Basemaps; vector sharpening; 250 m views</td><td><a href="https://openfreemap.org">OpenFreeMap</a>, free with no key. Tile schema © <a href="https://www.openmaptiles.org/">OpenMapTiles</a>. Data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, ODbL.</td></tr>
+      <tr><td>OpenFreeMap vector tiles</td><td>Basemaps; vector sharpening; the fine views in Compare and Why; labels and roads drawn over the satellite basemap</td><td><a href="https://openfreemap.org">OpenFreeMap</a>, free with no key. Tile schema © <a href="https://www.openmaptiles.org/">OpenMapTiles</a>. Data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, ODbL.</td></tr>
       <tr><td>Köppen-Geiger climate map</td><td>Climate at the dot; the climate filter</td><td>Rubel, Brugger, Haslinger and Auer (2017), <a href="https://koeppen-geiger.vu-wien.ac.at/">University of Vienna</a>, 1986 to 2010 period, via the <a href="https://github.com/cwru-sdle/kgcpy">kgcpy</a> package (BSD). Resampled to 5 arc-minutes, 240 KB.</td></tr>
       <tr><td>OpenTopoMap</td><td>Topographic basemap</td><td>© <a href="https://opentopomap.org">OpenTopoMap</a>, CC BY-SA. Data © OpenStreetMap contributors and SRTM.</td></tr>
       <tr><td>Esri World Imagery</td><td>Satellite basemap</td><td>© Esri, Maxar, Earthstar Geographics, and the GIS User Community, under Esri's terms of use.</td></tr>
-      <tr><td>Mapzen terrain tiles</td><td>Hillshade and 3D terrain</td><td><a href="https://registry.opendata.aws/terrain-tiles/">Terrain Tiles on AWS Open Data</a>, sources include SRTM, ETOPO1, and national elevation datasets.</td></tr>
+      <tr><td>Mapzen terrain tiles</td><td>Hillshade and 3D terrain; the elevation under the cursor in the map readout</td><td><a href="https://registry.opendata.aws/terrain-tiles/">Terrain Tiles on AWS Open Data</a>, sources include SRTM, ETOPO1, and national elevation datasets.</td></tr>
       <tr><td>Photon</td><td>Address search and place names</td><td><a href="https://photon.komoot.io">Photon by komoot</a>, Apache 2.0. Data © OpenStreetMap contributors.</td></tr>
       <tr><td>Nominatim</td><td>Fallback geocoding</td><td><a href="https://nominatim.org">Nominatim</a>. Data © OpenStreetMap contributors.</td></tr>
       <tr><td>MapLibre GL JS</td><td>The map</td><td><a href="https://maplibre.org">MapLibre</a>, BSD 3-Clause.</td></tr>
@@ -126,10 +131,11 @@
   <p>Coastline Twin's own code is MIT licensed and lives at <a href="https://github.com/silentoplayz/coastline-twin">github.com/silentoplayz/coastline-twin</a>.</p>
 
   <h2>What leaves your device</h2>
-  <p>The website has no server of its own. The search, the drawing, the analysis, and the share cards are computed in your browser, and saved runs live in your browser's storage. Three kinds of request go out while you use it.</p>
+  <p>The website has no server of its own. The search, the drawing, the analysis, and the share cards are computed in your browser, and saved runs live in your browser's storage. Four kinds of request go out while you use it.</p>
   <ul>
     <li><b>Geocoding.</b> The text you type in the address box and the coordinates you place a pin at are sent to Photon, and to Nominatim if Photon fails, to turn them into places and names. Match coordinates are sent the same way to name each match.</li>
-    <li><b>Map tiles.</b> Whatever basemap is showing requests tiles for the area on screen from its provider, as any web map does.</li>
+    <li><b>Map tiles.</b> Whatever basemap is showing requests tiles for the area on screen from its provider, as any web map does. The satellite basemap also requests OpenFreeMap vector tiles for its labels and roads.</li>
+    <li><b>Elevation tiles.</b> Hillshade, 3D terrain, and the elevation figure in the readout fetch Mapzen terrain tiles from AWS for the area on screen and for the tile under the pointer.</li>
     <li><b>Sharpening tiles.</b> With sharpening on, the vector tiles around your home square and around the top twenty matches are fetched from OpenFreeMap, which reveals those coasts as areas of interest to that service.</li>
   </ul>
   <p>Nothing is logged or stored by this project. A shared link or share card contains what you see on it: your square's location or drawing, the match, and the names, so share them with the same care you would give a map of your neighborhood. The draw mode exists partly for this reason: a drawn square carries no location at all.</p>
