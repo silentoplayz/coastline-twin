@@ -58,12 +58,13 @@
   const nullMap = new Proxy({}, { get: (_, key) => (key === "getSource" || key === "getLayer" ? noop : key === "getBounds" ? () => null : key === "getZoom" ? () => 2 : key === "getContainer" ? () => $("map") : noop) });
   const map = webgl ? new maplibregl.Map({
     container: "map", style: styleFor(currentScheme()), center: [-20, 30], zoom: 1.6, minZoom: 1.5,
-    attributionControl: { compact: true }, canvasContextAttributes: { antialias: true },
+    attributionControl: false, canvasContextAttributes: { antialias: true },
   }) : nullMap;
   if (!webgl) {
     $("map").innerHTML = '<div class="preview-empty" style="padding:40px">This browser has no WebGL, so the map cannot be drawn. Searching still works: type an address or coordinates on the left.</div>';
     $("map-hint").hidden = true;
   }
+  if (webgl) map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
   if (webgl) map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-left");
   if (webgl && maplibregl.GlobeControl) map.addControl(new maplibregl.GlobeControl(), "top-left");
   function fitMinZoom() {
@@ -85,6 +86,60 @@
     }
   }
   if (webgl) { map.on("move", () => { if (!sky.raf) sky.raf = requestAnimationFrame(moveSky); }); map.on("load", moveSky); }
+  const status = { coords: $("status-coords"), elev: $("status-elev"), eye: $("status-eye"), tiles: new Map(), raf: 0, point: null, last: null, timer: 0 };
+  function dms(v, pos, neg) {
+    const total = Math.round(Math.abs(v) * 360000) / 100, d = Math.floor(total / 3600), m = Math.floor((total - d * 3600) / 60), s = total - d * 3600 - m * 60;
+    return `${d}°${String(m).padStart(2, "0")}'${s.toFixed(2).padStart(5, "0")}" ${v >= 0 ? pos : neg}`;
+  }
+  function eyeAltitude() {
+    const h = map.getContainer().clientHeight;
+    const mpp = 156543.03392 * Math.cos(map.getCenter().lat * Math.PI / 180) / Math.pow(2, map.getZoom());
+    return (h / 2) / Math.tan(0.6435011087932844 / 2) * mpp;
+  }
+  function fmtAlt(m) { return m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`; }
+  function elevationAt(lng, lat) {
+    const z = Math.max(3, Math.min(12, Math.round(map.getZoom()) + 2)), n = 1 << z;
+    const x = (lng + 180) / 360 * n, latr = lat * Math.PI / 180;
+    const y = (1 - Math.log(Math.tan(latr) + 1 / Math.cos(latr)) / Math.PI) / 2 * n;
+    if (!(y >= 0 && y < n)) return Promise.resolve(null);
+    const tx = Math.floor(x), ty = Math.floor(y), key = `${z}/${tx}/${ty}`;
+    let tile = status.tiles.get(key);
+    if (!tile) {
+      tile = fetch(DEM.tiles[0].replace("{z}", z).replace("{x}", tx).replace("{y}", ty)).then((r) => r.ok ? r.blob() : Promise.reject(new Error(r.status))).then((b) => createImageBitmap(b)).then((bm) => {
+        const cv = document.createElement("canvas"); cv.width = cv.height = 256;
+        const ctx = cv.getContext("2d"); ctx.drawImage(bm, 0, 0); bm.close();
+        return ctx.getImageData(0, 0, 256, 256).data;
+      });
+      status.tiles.set(key, tile);
+      tile.catch(() => status.tiles.delete(key));
+      if (status.tiles.size > 80) status.tiles.delete(status.tiles.keys().next().value);
+    }
+    return tile.then((data) => {
+      const px = Math.min(255, Math.floor((x - tx) * 256)), py = Math.min(255, Math.floor((y - ty) * 256)), i = (py * 256 + px) * 4;
+      return data[i] * 256 + data[i + 1] + data[i + 2] / 256 - 32768;
+    });
+  }
+  function updateStatus(point) {
+    status.eye.textContent = `eye alt ${fmtAlt(eyeAltitude())}`;
+    let ll = null;
+    if (point) {
+      const u = map.unproject(point), back = map.project(u);
+      if (Math.hypot(back.x - point.x, back.y - point.y) < 2) ll = { lng: ((u.lng + 540) % 360 + 360) % 360 - 180, lat: u.lat };
+    }
+    if (!ll) { status.coords.textContent = ""; status.elev.textContent = ""; status.last = null; return; }
+    status.coords.textContent = `${dms(ll.lat, "N", "S")}  ${dms(ll.lng, "E", "W")}`;
+    status.last = ll;
+    clearTimeout(status.timer);
+    status.timer = setTimeout(() => {
+      elevationAt(ll.lng, ll.lat).then((e) => { if (status.last === ll) status.elev.textContent = e == null ? "" : `elev ${Math.round(e)} m`; }).catch(() => {});
+    }, 120);
+  }
+  if (webgl) {
+    map.on("mousemove", (e) => { $("map-status").hidden = false; status.point = e.point; if (!status.raf) status.raf = requestAnimationFrame(() => { status.raf = 0; updateStatus(status.point); }); });
+    map.getCanvas().addEventListener("mouseleave", () => updateStatus(null));
+    map.on("move", () => { status.eye.textContent = `eye alt ${fmtAlt(eyeAltitude())}`; });
+    map.on("load", () => updateStatus(null));
+  }
   map.on("style.load", () => {
     map.setProjection({ type: "globe" });
     if (map.setSky) map.setSky({ "atmosphere-blend": ["interpolate", ["linear"], ["zoom"], 0, 0.9, 5, 0.9, 7, 0] });

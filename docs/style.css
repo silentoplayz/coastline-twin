@@ -204,6 +204,9 @@ progress { width: 100%; height: 8px; margin-top: 8px; border-radius: 4px; overfl
   font-size: 13px; box-shadow: var(--shadow); pointer-events: none; transition: opacity .3s;
 }
 .map-hint.faded { opacity: 0; }
+.map-status { position: absolute; right: 10px; bottom: 10px; display: flex; gap: 14px; padding: 4px 10px; border-radius: 6px; background: rgba(4, 6, 12, 0.72); color: #e8edf5; font-size: 12px; font-variant-numeric: tabular-nums; letter-spacing: 0.01em; white-space: nowrap; pointer-events: none; z-index: 2; }
+.map-status span:empty { display: none; }
+
 .maplibregl-ctrl-group { background: var(--panel) !important; border: 1px solid var(--border); box-shadow: none !important; }
 .maplibregl-ctrl-group button { background: transparent !important; border-color: var(--border) !important; }
 .maplibregl-ctrl-group button + button { border-top: 1px solid var(--border) !important; }
