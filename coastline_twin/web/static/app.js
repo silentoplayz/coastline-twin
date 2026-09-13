@@ -192,6 +192,28 @@
     proto.__keepAbort = true;
     proto.abortTile = async function (tile) { if (tile.abortController) tile.abortController.abort(); tile.aborted = true; };
   }
+  function tileManager(id) {
+    const tm = map.style && map.style.tileManagers;
+    return tm ? (tm instanceof Map ? tm.get(id) : tm[id]) : null;
+  }
+  function capTileCache(id, levels) {
+    const m = tileManager(id);
+    if (m && "_maxTileCacheZoomLevels" in m) m._maxTileCacheZoomLevels = levels;
+  }
+  function releaseSource(id, layer, beforeId) {
+    if (!webgl || !map.getSource(id)) return;
+    if (layer && map.getLayer(layer.id)) map.removeLayer(layer.id);
+    map.removeSource(id);
+    map.addSource(id, DEM);
+    capTileCache(id, 4);
+    if (layer) map.addLayer(layer, beforeId && map.getLayer(beforeId) ? beforeId : undefined);
+  }
+  function hillshadeSpec() { return { id: "hillshade", type: "hillshade", source: "dem", layout: { visibility: layerPrefs.hillshade ? "visible" : "none" }, paint: { "hillshade-exaggeration": 0.45, "hillshade-shadow-color": "#1b1b1b", "hillshade-highlight-color": "#ffffff" } }; }
+  function layerAfter(id) {
+    const layers = (styleOf(map) || {}).layers || [];
+    const i = layers.findIndex((l) => l.id === id);
+    return i >= 0 && layers[i + 1] ? layers[i + 1].id : undefined;
+  }
   function patchRasterAborts() {
     let sources = {};
     try { sources = map.getStyle().sources || {}; } catch (e) { return; }
@@ -202,7 +224,7 @@
   }
   const map = webgl ? new maplibregl.Map({
     container: "map", style: EMPTY_STYLE, center: [-20, 30], zoom: 1.6, minZoom: 1.5,
-    attributionControl: false, canvasContextAttributes: { antialias: true }, maxTileCacheZoomLevels: 16,
+    attributionControl: false, canvasContextAttributes: { antialias: true }, maxTileCacheZoomLevels: 10,
   }) : nullMap;
   if (!webgl) {
     $("map").innerHTML = '<div class="preview-empty" style="padding:40px">This browser has no WebGL, so the map cannot be drawn. Searching still works: type an address or coordinates on the left.</div>';
@@ -312,6 +334,8 @@
     const firstSymbol = (map.getStyle().layers.find((l) => l.type === "symbol") || {}).id;
     if (!map.getSource("dem")) map.addSource("dem", DEM);
     if (!map.getSource("dem-terrain")) map.addSource("dem-terrain", DEM);
+    capTileCache("dem", 4);
+    capTileCache("dem-terrain", 4);
     if (!map.getLayer("hillshade")) map.addLayer({ id: "hillshade", type: "hillshade", source: "dem", layout: { visibility: layerPrefs.hillshade ? "visible" : "none" }, paint: { "hillshade-exaggeration": 0.45, "hillshade-shadow-color": "#1b1b1b", "hillshade-highlight-color": "#ffffff" } }, firstSymbol);
     if (!map.getSource("mask")) map.addSource("mask", { type: "image", url: BLANK_PNG, coordinates: [[-1, 1], [1, 1], [1, -1], [-1, -1]] });
     if (!map.getLayer("mask")) map.addLayer({ id: "mask", type: "raster", source: "mask", layout: { visibility: layerPrefs.mask ? "visible" : "none" }, paint: { "raster-opacity": 0.55, "raster-resampling": "nearest", "raster-fade-duration": 0 } }, firstSymbol);
@@ -365,6 +389,8 @@
     if (map.getLayer("hillshade")) map.setLayoutProperty("hillshade", "visibility", layerPrefs.hillshade ? "visible" : "none");
     if (map.getLayer("mask")) { map.setLayoutProperty("mask", "visibility", layerPrefs.mask || offlineActive() ? "visible" : "none"); map.setPaintProperty("mask", "raster-opacity", offlineActive() ? 1 : 0.55); }
     if (map.getSource("dem-terrain")) map.setTerrain(layerPrefs.terrain ? { source: "dem-terrain", exaggeration: 1.2 } : null);
+    if (!layerPrefs.terrain) releaseSource("dem-terrain");
+    if (!layerPrefs.hillshade && map.getLayer("hillshade")) releaseSource("dem", hillshadeSpec(), layerAfter("hillshade"));
     if (layerPrefs.mask || offlineActive()) refreshMask();
     applyTiles();
     refreshDetailsUI();

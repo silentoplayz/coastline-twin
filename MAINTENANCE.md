@@ -37,6 +37,17 @@ abort workaround in `app.js` is guarded to 5.x and drops out on upgrade.
 The local app makes the same requests, plus none of its own: the server only
 reads the results folder and runs the Python engine.
 
+## Tile caches and memory
+
+The map keeps ten zoom levels of out-of-view tiles per source so zooming
+back out never re-fetches, but the two elevation sources are capped at
+four levels through the tile manager (an internal field, guarded, 5.x
+only), and each is removed and re-added when its overlay is switched off
+so its textures are freed. With every source at the same large cap, 3D
+terrain plus hillshade held over a thousand textures within a few minutes
+of panning and never released them; measured with WebGL object counts in
+Chrome and Firefox, see the commit that added this section.
+
 ## Two engines that must stay in step
 
 `docs/engine.js` (browser worker) and `coastline_twin/search.py` implement
