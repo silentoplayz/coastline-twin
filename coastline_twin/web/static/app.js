@@ -1144,6 +1144,7 @@
       const job = await api(`/api/jobs/${state.job.id}`);
       state.job = job;
       renderJobStatus(job);
+      refreshRunsRow(job);
       if (job.status !== "running" && job.status !== "cancelling") {
         clearInterval(state.pollTimer);
         state.running = false;
@@ -1957,8 +1958,13 @@
       return [];
     }
   }
-  $("runs-button").addEventListener("click", async () => {
-    const runs = await refreshRunsCount();
+  function runPill(r) {
+    const pr = r.progress || {};
+    if (r.status === "running" && pr.stage === "vector") return `sharpening ${pr.vector_done || 0}/${pr.vector_total || 0}`;
+    if (r.status === "running" && pr.total) return `running ${Math.round(100 * pr.done / pr.total)}%`;
+    return r.status;
+  }
+  function renderRunsTable(runs) {
     const body = $("runs-body");
     body.innerHTML = "";
     $("runs-empty").hidden = runs.length > 0;
@@ -1967,11 +1973,11 @@
       const home = r.params && r.params.home ? escapeHtml(r.params.home_name ? shortName(r.params.home_name) : fmtCoords(r.params.home.lat, r.params.home.lon)) : "drawn";
       const side = r.params && r.params.side_km ? `${r.params.side_km} km` : "";
       const top = r.top && r.top[0] ? `${escapeHtml(r.top[0].place || fmtCoords(r.top[0].dot_lat, r.top[0].dot_lon))} (${r.top[0].score.toFixed(3)})` : "";
-      const progress = r.status === "running" && r.progress && r.progress.total ? ` ${Math.round(100 * r.progress.done / r.progress.total)}%` : "";
+      tr.dataset.id = r.id;
       tr.innerHTML = `
         <td><b>${escapeHtml(r.label || r.id)}</b><br><span class="muted small">${timeAgo(r.started * 1000)}</span></td>
         <td>${home}</td><td>${side}</td>
-        <td><span class="status-pill ${r.status}">${r.status}${progress}</span></td>
+        <td><span class="status-pill ${r.status}">${runPill(r)}</span></td>
         <td>${top}</td>
         <td class="actions"><button type="button" class="small" data-open="${r.id}">Open</button><button type="button" class="ghost small" data-delete="${r.id}">Delete</button></td>`;
       body.appendChild(tr);
@@ -1988,6 +1994,15 @@
         toast(err.message);
       }
     }));
+  }
+  function refreshRunsRow(job) {
+    if (!$("runs-dialog").open) return;
+    const pill = $("runs-body").querySelector(`tr[data-id="${job.id}"] .status-pill`);
+    if (pill) { pill.className = `status-pill ${job.status}`; pill.textContent = runPill(job); }
+    if (!pill || (job.status !== "running" && job.status !== "cancelling")) refreshRunsCount().then(renderRunsTable).catch(() => {});
+  }
+  $("runs-button").addEventListener("click", async () => {
+    renderRunsTable(await refreshRunsCount());
     $("runs-dialog").showModal();
   });
   $("runs-close").addEventListener("click", () => $("runs-dialog").close());
