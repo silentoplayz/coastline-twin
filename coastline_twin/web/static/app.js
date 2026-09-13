@@ -147,6 +147,22 @@
   })();
   const noop = () => undefined;
   const nullMap = new Proxy({}, { get: (_, key) => (key === "getSource" || key === "getLayer" ? noop : key === "getBounds" ? () => null : key === "getZoom" ? () => 2 : key === "getContainer" ? () => $("map") : noop) });
+  function keepAbortController(src) {
+    const version = (typeof maplibregl.getVersion === "function" && maplibregl.getVersion()) || maplibregl.version || "";
+    if (!src || !/^5\./.test(version)) return;
+    const proto = Object.getPrototypeOf(src);
+    if (!proto || proto.__keepAbort || typeof proto.abortTile !== "function") return;
+    proto.__keepAbort = true;
+    proto.abortTile = async function (tile) { if (tile.abortController) tile.abortController.abort(); tile.aborted = true; };
+  }
+  function patchRasterAborts() {
+    let sources = {};
+    try { sources = map.getStyle().sources || {}; } catch (e) { return; }
+    for (const id of Object.keys(sources)) {
+      const src = map.getSource(id);
+      if (src && (src.type === "raster" || src.type === "raster-dem")) keepAbortController(src);
+    }
+  }
   const map = webgl ? new maplibregl.Map({
     container: "map", style: styleFor(currentScheme()), center: [-20, 30], zoom: 1.6, minZoom: 1.5,
     attributionControl: false, canvasContextAttributes: { antialias: true }, maxTileCacheZoomLevels: 16,
@@ -270,6 +286,7 @@
       if (!map.getLayer(id)) map.addLayer({ id, type: "line", source: id, paint });
     }
     if (!map.getLayer("bbox-fill")) map.addLayer({ id: "bbox-fill", type: "fill", source: "bbox", paint: { "fill-color": "#1f77b4", "fill-opacity": 0.05 } }, "bbox");
+    patchRasterAborts();
     ensureSatelliteOverlay().then(applyDetails);
     applyDetails();
     refreshDetailsUI();
