@@ -251,7 +251,7 @@
   map.on("style.load", () => {
     details.seq++;
     details.original = new Map();
-    map.setProjection({ type: "globe" });
+    map.setProjection({ type: map.__projection || "globe" });
     if (map.setSky) map.setSky({ "atmosphere-blend": ["interpolate", ["linear"], ["zoom"], 0, 0.9, 5, 0.9, 7, 0] });
     const firstSymbol = (map.getStyle().layers.find((l) => l.type === "symbol") || {}).id;
     if (!map.getSource("dem")) map.addSource("dem", DEM);
@@ -388,7 +388,7 @@
     const scheme = currentScheme();
     document.documentElement.classList.toggle("map-dark", scheme === "dark");
     const key = styleKey(scheme);
-    if (map.__styleKey !== key) { map.__styleKey = key; map.setStyle(styleFor(scheme)); }
+    if (map.__styleKey !== key) { map.__styleKey = key; map.__projection = (map.getProjection && map.getProjection() || {}).type || map.__projection || "globe"; map.setStyle(styleFor(scheme)); }
     for (const cm of [compare.home, compare.match]) if (cm && cm.__styleKey !== key) { cm.__styleKey = key; cm.setStyle(styleFor(scheme)); }
   }
   function setScheme(scheme) {
