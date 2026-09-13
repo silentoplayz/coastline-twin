@@ -139,6 +139,19 @@
     return (h / 2) / Math.tan(0.6435011087932844 / 2) * mpp;
   }
   function fmtAlt(m) { return m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`; }
+  function updateScale() {
+    const el = $("status-scale");
+    if (!el) return;
+    const c = map.getContainer(), maxPx = 100, cx = c.clientWidth / 2, cy = c.clientHeight / 2;
+    const a = map.unproject([cx - maxPx / 2, cy]), b = map.unproject([cx + maxPx / 2, cy]);
+    const meters = haversineKm(a.lat, a.lng, b.lat, b.lng) * 1000;
+    if (!(meters > 0)) { el.hidden = true; return; }
+    const pow = Math.pow(10, Math.floor(Math.log10(meters)));
+    const d = pow * ([5, 3, 2, 1].find((k) => k * pow <= meters) || 1);
+    el.hidden = false;
+    el.querySelector("i").style.width = `${Math.round(maxPx * d / meters)}px`;
+    el.querySelector("b").textContent = d >= 1000 ? `${Math.round(d / 1000)} km` : `${Math.round(d)} m`;
+  }
   function elevationAt(lng, lat) {
     const z = Math.max(3, Math.min(12, Math.round(map.getZoom()) + 2)), n = 1 << z;
     const x = (lng + 180) / 360 * n, latr = lat * Math.PI / 180;
@@ -179,8 +192,9 @@
   if (webgl) {
     map.on("mousemove", (e) => { $("map-status").hidden = false; status.point = e.point; if (!status.raf) status.raf = requestAnimationFrame(() => { status.raf = 0; updateStatus(status.point); }); });
     map.getCanvas().addEventListener("mouseleave", () => updateStatus(null));
-    map.on("move", () => { status.eye.textContent = `eye alt ${fmtAlt(eyeAltitude())}`; });
-    map.on("load", () => updateStatus(null));
+    map.on("move", () => { status.eye.textContent = `eye alt ${fmtAlt(eyeAltitude())}`; updateScale(); });
+    map.on("resize", updateScale);
+    map.on("load", () => { updateStatus(null); updateScale(); });
   }
   map.on("style.load", () => {
     map.setProjection({ type: "globe" });
