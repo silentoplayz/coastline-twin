@@ -147,9 +147,13 @@ What the page does:
   hold the contact sheet and the downloadable files.
 - **Layers.** The Layers button on the map picks a basemap and overlays. Basemaps:
   the five OpenFreeMap vector styles (Light, Dark, Streets, Bright, Fiord),
-  OpenTopoMap, and Esri satellite imagery, none of which need an API key. Overlays: hillshade and 3D terrain from Mapzen elevation
+  OpenTopoMap, and Esri satellite imagery, none of which need an API key.
+  Overlays: hillshade and 3D terrain from Mapzen elevation
   tiles on AWS, and the 1 km land mask the matcher actually sees, drawn over
   the map so you can check what counts as water, lakes included. Details
+  A Coastline only basemap is drawn from the shipped land mask and needs
+  no map service; the app switches to it by itself if the basemap styles
+  cannot be fetched. Details
   presets (Clean, Exploration, Everything, Custom) switch borders and labels,
   places, roads, transit, landmarks, and water names on or off, on every
   vector basemap and, drawn from the Streets style, over the satellite
@@ -298,6 +302,13 @@ Three limits to keep in mind:
   north-facing bay. Keep `--rot-max` small if aspect matters to you.
 - **Shape knows nothing about climate.** Use `--lat-band`, `--same-hemisphere`,
   or `--bbox` to filter first, then let the coastline rank what survives.
+
+## Keeping it running
+
+MapLibre and the basemap styles are vendored, the Python packages are
+pinned, and every outside service degrades to something that still works.
+[MAINTENANCE.md](MAINTENANCE.md) lists each dependency, what happens when it
+fails, and the one change that swaps it.
 
 ## The website
 

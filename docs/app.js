@@ -61,6 +61,7 @@
 
   const STYLES = { light: "https://tiles.openfreemap.org/styles/positron", dark: "https://tiles.openfreemap.org/styles/dark" };
   const IMAGES = "images/";
+  const VENDOR = "vendor/";
   const BASEMAPS = {
     auto: { name: "Match the theme" },
     positron: { name: "Light", style: "https://tiles.openfreemap.org/styles/positron" },
@@ -69,6 +70,7 @@
     bright: { name: "Bright", style: "https://tiles.openfreemap.org/styles/bright" },
     fiord: { name: "Fiord", style: "https://tiles.openfreemap.org/styles/fiord" },
     topo: { name: "Topographic", raster: { tiles: ["https://a.tile.opentopomap.org/{z}/{x}/{y}.png", "https://b.tile.opentopomap.org/{z}/{x}/{y}.png", "https://c.tile.opentopomap.org/{z}/{x}/{y}.png"], maxzoom: 17, attribution: 'Map data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, SRTM · Style © <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA)' } },
+    coast: { name: "Coastline only", offline: true },
     satellite: { name: "Satellite", raster: { tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"], maxzoom: 19, attribution: "Imagery © Esri, Maxar, Earthstar Geographics, and the GIS User Community" } },
   };
   const DEM = { type: "raster-dem", tiles: ["https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"], encoding: "terrarium", tileSize: 256, maxzoom: 15, attribution: "Elevation: Mapzen Terrain Tiles on AWS" };
@@ -101,7 +103,7 @@
     return null;
   }
   const details = { original: new Map(), seq: 0 };
-  function detailsSupported() { return layerPrefs.basemap !== "topo"; }
+  function detailsSupported() { return layerPrefs.basemap !== "topo" && !(BASEMAPS[layerPrefs.basemap] || {}).offline; }
   function applyDetails() {
     if (!webgl || !detailsSupported()) return;
     let style = null;
@@ -116,7 +118,7 @@
   }
   let overlayStylePromise = null;
   function loadOverlayStyle() {
-    if (!overlayStylePromise) overlayStylePromise = fetch(BASEMAPS.liberty.style).then((r) => r.json()).catch((e) => { overlayStylePromise = null; throw e; });
+    if (!overlayStylePromise) overlayStylePromise = loadStyle(BASEMAPS.liberty.style).catch((e) => { overlayStylePromise = null; throw e; });
     return overlayStylePromise;
   }
   function ensureSatelliteOverlay() {
@@ -139,6 +141,7 @@
     if (!group) return;
     const ok = detailsSupported();
     $("details-note").hidden = ok;
+    $("details-note").textContent = (BASEMAPS[layerPrefs.basemap] || {}).offline ? "The coastline map has no labels or roads to switch." : "Topographic tiles carry their own labels and roads, so there is nothing to switch off.";
     $("details-presets").hidden = !ok;
     $("details-custom").hidden = !ok || layerPrefs.details !== "custom";
     for (const el of $("details-presets").querySelectorAll("input")) el.checked = el.value === layerPrefs.details;
@@ -171,11 +174,45 @@
     refreshDetailsUI();
   }
   function styleKey(scheme) { return layerPrefs.basemap === "auto" ? `auto:${scheme}` : layerPrefs.basemap; }
-  function styleFor(scheme) {
-    const b = BASEMAPS[layerPrefs.basemap];
-    if (!b || !b.style && !b.raster) return STYLES[scheme];
-    return b.style || rasterStyle(b.raster);
+  const EMPTY_STYLE = { version: 8, sources: {}, layers: [] };
+  const OFFLINE_STYLE = { version: 8, metadata: { "coastline-twin": "offline" }, sources: {}, layers: [{ id: "background", type: "background", paint: { "background-color": "#9ecae1" } }] };
+  const notes = new Set();
+  function noteOnce(key, msg) { if (!notes.has(key)) { notes.add(key); toast(msg, 6000); } }
+  function fetchStyleJson(url, ms) {
+    const c = new AbortController(), t = setTimeout(() => c.abort(), ms);
+    return fetch(url, { signal: c.signal }).then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }).finally(() => clearTimeout(t));
   }
+  const styleCache = new Map();
+  function loadStyle(url) {
+    if (!styleCache.has(url)) {
+      const name = (url.match(/styles\/([a-z]+)$/) || [])[1];
+      const p = fetchStyleJson(url, 8000).catch(() => fetchStyleJson(`${VENDOR}styles/${name}.json`, 8000).then((st) => { st.metadata = { ...(st.metadata || {}), "coastline-twin": "vendored" }; return st; }));
+      p.catch(() => styleCache.delete(url));
+      styleCache.set(url, p);
+    }
+    return styleCache.get(url);
+  }
+  function styleSpec(scheme) {
+    const b = BASEMAPS[layerPrefs.basemap];
+    if (!b || (!b.style && !b.raster && !b.offline)) return { url: STYLES[scheme] };
+    return b.style ? { url: b.style } : b.raster ? { raster: b.raster } : { offline: true };
+  }
+  async function resolveStyle(scheme) {
+    const spec = styleSpec(scheme);
+    if (spec.raster) return rasterStyle(spec.raster);
+    if (spec.offline) return OFFLINE_STYLE;
+    try {
+      const st = await loadStyle(spec.url);
+      if (st.metadata && st.metadata["coastline-twin"] === "vendored") noteOnce("vendored", "The basemap style could not be fetched, so the built-in copy is in use. Tiles may still be missing.");
+      return st;
+    } catch (e) {
+      noteOnce("offline", "Basemap styles are unreachable. Showing the built-in coastline map; other basemaps are under Layers.");
+      return OFFLINE_STYLE;
+    }
+  }
+  function styleCopy(st) { return JSON.parse(JSON.stringify(st)); }
+  function styleOf(m) { try { return m.getStyle(); } catch (e) { return null; } }
+  function offlineActive() { const st = styleOf(map); return !!(st && st.metadata && st.metadata["coastline-twin"] === "offline"); }
   const overlays = {
     "home-square": { type: "FeatureCollection", features: [] },
     "bbox": { type: "FeatureCollection", features: [] },
@@ -203,7 +240,7 @@
     }
   }
   const map = webgl ? new maplibregl.Map({
-    container: "map", style: styleFor(currentScheme()), center: [-20, 30], zoom: 1.6, minZoom: 1.5,
+    container: "map", style: EMPTY_STYLE, center: [-20, 30], zoom: 1.6, minZoom: 1.5,
     attributionControl: false, canvasContextAttributes: { antialias: true }, maxTileCacheZoomLevels: 16,
   }) : nullMap;
   if (!webgl) {
@@ -303,7 +340,10 @@
     map.on("resize", updateScale);
     map.on("load", () => { updateStatus(null); updateScale(); });
   }
+  let tileErrors = 0;
+  map.on("error", (e) => { if (e && (e.tile || e.sourceId) && ++tileErrors === 6) noteOnce("tiles", "Basemap tiles are not loading. The Coastline only basemap under Layers needs no map service."); });
   map.on("style.load", () => {
+    if (!map.__styleKey) return;
     details.seq++;
     details.original = new Map();
     map.setProjection({ type: map.__projection || "globe" });
@@ -315,7 +355,8 @@
     if (!map.getSource("mask")) map.addSource("mask", { type: "image", url: BLANK_PNG, coordinates: [[-1, 1], [1, 1], [1, -1], [-1, -1]] });
     if (!map.getLayer("mask")) map.addLayer({ id: "mask", type: "raster", source: "mask", layout: { visibility: layerPrefs.mask ? "visible" : "none" }, paint: { "raster-opacity": 0.55, "raster-resampling": "nearest", "raster-fade-duration": 0 } }, firstSymbol);
     map.setTerrain(layerPrefs.terrain ? { source: "dem-terrain", exaggeration: 1.2 } : null);
-    if (layerPrefs.mask) refreshMask();
+    if (offlineActive()) { map.setLayoutProperty("mask", "visibility", "visible"); map.setPaintProperty("mask", "raster-opacity", 1); }
+    if (layerPrefs.mask || offlineActive()) refreshMask();
     for (const [id, paint] of [
       ["home-square", { "line-color": "#d62728", "line-width": 2, "line-dasharray": [3, 2] }],
       ["bbox", { "line-color": "#1f77b4", "line-width": 1, "line-dasharray": [1, 3] }],
@@ -344,7 +385,7 @@
   const mercY = (lat) => Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
   let maskTimer = null, maskSeq = 0, maskUrl = null;
   async function refreshMask() {
-    if (!layerPrefs.mask || !webgl) return;
+    if (!(layerPrefs.mask || offlineActive()) || !webgl) return;
     const b = map.getBounds();
     if (!b) return;
     const w = Math.max(-180, b.getWest()), e = Math.min(180, b.getEast()), s = Math.max(-85, b.getSouth()), n = Math.min(85, b.getNorth());
@@ -368,9 +409,9 @@
     saveLayerPrefs();
     if (!webgl) return;
     if (map.getLayer("hillshade")) map.setLayoutProperty("hillshade", "visibility", layerPrefs.hillshade ? "visible" : "none");
-    if (map.getLayer("mask")) map.setLayoutProperty("mask", "visibility", layerPrefs.mask ? "visible" : "none");
+    if (map.getLayer("mask")) { map.setLayoutProperty("mask", "visibility", layerPrefs.mask || offlineActive() ? "visible" : "none"); map.setPaintProperty("mask", "raster-opacity", offlineActive() ? 1 : 0.55); }
     if (map.getSource("dem-terrain")) map.setTerrain(layerPrefs.terrain ? { source: "dem-terrain", exaggeration: 1.2 } : null);
-    if (layerPrefs.mask) refreshMask();
+    if (layerPrefs.mask || offlineActive()) refreshMask();
     applyTiles();
     refreshDetailsUI();
   }
@@ -451,8 +492,12 @@
     const scheme = currentScheme();
     document.documentElement.classList.toggle("map-dark", scheme === "dark");
     const key = styleKey(scheme);
-    if (map.__styleKey !== key) { map.__styleKey = key; map.__projection = (map.getProjection && map.getProjection() || {}).type || map.__projection || "globe"; map.setStyle(styleFor(scheme)); }
-    for (const cm of [compare.home, compare.match]) if (cm && cm.__styleKey !== key) { cm.__styleKey = key; cm.setStyle(styleFor(scheme)); }
+    if (map.__styleKey !== key) {
+      map.__styleKey = key;
+      map.__projection = (map.getProjection && map.getProjection() || {}).type || map.__projection || "globe";
+      resolveStyle(scheme).then((st) => { if (map.__styleKey === key) map.setStyle(styleCopy(st)); });
+    }
+    for (const cm of [compare.home, compare.match]) if (cm && cm.__styleKey !== key) { cm.__styleKey = key; resolveStyle(scheme).then((st) => { if (cm.__styleKey === key) cm.setStyle(styleCopy(st)); }); }
   }
   function setScheme(scheme) {
     const root = document.documentElement;
@@ -470,7 +515,6 @@
   }
   $("theme-toggle").addEventListener("click", () => setScheme(currentScheme() === "dark" ? "light" : "dark"));
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", applyTiles);
-  map.__styleKey = styleKey(currentScheme());
 
   let toastTimer = null;
   function toast(msg, ms = 3500) {
@@ -1767,8 +1811,9 @@
   function ensureCompareMaps() {
     if (compare.home) return;
     for (const key of ["home", "match"]) {
-      const m = new maplibregl.Map({ container: `compare-${key}`, style: styleFor(currentScheme()), interactive: false, attributionControl: false, canvasContextAttributes: { preserveDrawingBuffer: true, antialias: true } });
+      const m = new maplibregl.Map({ container: `compare-${key}`, style: EMPTY_STYLE, interactive: false, attributionControl: false, canvasContextAttributes: { preserveDrawingBuffer: true, antialias: true } });
       m.__styleKey = styleKey(currentScheme());
+      resolveStyle(currentScheme()).then((st) => { if (m.__styleKey === styleKey(currentScheme())) m.setStyle(styleCopy(st)); });
       m.on("style.load", () => compareLayers(m));
       compare[key] = m;
     }
@@ -2192,4 +2237,5 @@
     ensurePool(workerCount()).catch((e) => toast(`Could not load the land mask: ${e.message}`));
   }
   init();
+  if (webgl) applyTiles();
 })();
