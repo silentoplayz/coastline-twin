@@ -206,7 +206,7 @@
     if (layer && map.getLayer(layer.id)) map.removeLayer(layer.id);
     map.removeSource(id);
     map.addSource(id, DEM);
-    capTileCache(id, 4);
+    capTileCache(id, 6);
     if (layer) map.addLayer(layer, beforeId && map.getLayer(beforeId) ? beforeId : undefined);
   }
   function hillshadeSpec() { return { id: "hillshade", type: "hillshade", source: "dem", layout: { visibility: layerPrefs.hillshade ? "visible" : "none" }, paint: { "hillshade-exaggeration": 0.45, "hillshade-shadow-color": "#1b1b1b", "hillshade-highlight-color": "#ffffff" } }; }
@@ -261,6 +261,16 @@
     const total = Math.round(Math.abs(v) * 360000) / 100, d = Math.floor(total / 3600), m = Math.floor((total - d * 3600) / 60), s = total - d * 3600 - m * 60;
     return `${d}°${String(m).padStart(2, "0")}'${s.toFixed(2).padStart(5, "0")}" ${v >= 0 ? pos : neg}`;
   }
+  function flatUnproject(point) {
+    const t = map.transform;
+    if (t && typeof t.screenPointToLocation === "function") { try { return t.screenPointToLocation(new maplibregl.Point(point.x, point.y)); } catch (e) {} }
+    return map.unproject(point);
+  }
+  function flatProject(ll) {
+    const t = map.transform;
+    if (t && typeof t.locationToScreenPoint === "function") { try { return t.locationToScreenPoint(maplibregl.LngLat.convert(ll)); } catch (e) {} }
+    return map.project(ll);
+  }
   function eyeAltitude() {
     const h = map.getContainer().clientHeight;
     const mpp = 156543.03392 * Math.cos(map.getCenter().lat * Math.PI / 180) / Math.pow(2, map.getZoom());
@@ -271,7 +281,8 @@
     const el = $("status-scale");
     if (!el) return;
     const c = map.getContainer(), maxPx = 100, cx = c.clientWidth / 2, cy = c.clientHeight / 2;
-    const a = map.unproject([cx - maxPx / 2, cy]), b = map.unproject([cx + maxPx / 2, cy]);
+    const a = flatUnproject({ x: cx - maxPx / 2, y: cy }), b = flatUnproject({ x: cx + maxPx / 2, y: cy });
+    if (!a || !b) { el.hidden = true; return; }
     const meters = haversineKm(a.lat, a.lng, b.lat, b.lng) * 1000;
     if (!(meters > 0)) { el.hidden = true; return; }
     const pow = Math.pow(10, Math.floor(Math.log10(meters)));
@@ -306,8 +317,8 @@
     status.eye.textContent = `eye alt ${fmtAlt(eyeAltitude())}`;
     let ll = null;
     if (point) {
-      const u = map.unproject(point), back = map.project(u);
-      if (Math.hypot(back.x - point.x, back.y - point.y) < 2) ll = { lng: ((u.lng + 540) % 360 + 360) % 360 - 180, lat: u.lat };
+      const u = flatUnproject(point), back = u && flatProject(u);
+      if (u && back && Math.hypot(back.x - point.x, back.y - point.y) < 2) ll = { lng: ((u.lng + 540) % 360 + 360) % 360 - 180, lat: u.lat };
     }
     if (!ll) { status.coords.textContent = ""; status.elev.textContent = ""; status.last = null; return; }
     status.coords.textContent = `${dms(ll.lat, "N", "S")}  ${dms(ll.lng, "E", "W")}`;
@@ -346,8 +357,8 @@
     const firstSymbol = (map.getStyle().layers.find((l) => l.type === "symbol") || {}).id;
     if (!map.getSource("dem")) map.addSource("dem", DEM);
     if (!map.getSource("dem-terrain")) map.addSource("dem-terrain", DEM);
-    capTileCache("dem", 4);
-    capTileCache("dem-terrain", 4);
+    capTileCache("dem", 6);
+    capTileCache("dem-terrain", 6);
     if (!map.getLayer("hillshade")) map.addLayer({ id: "hillshade", type: "hillshade", source: "dem", layout: { visibility: layerPrefs.hillshade ? "visible" : "none" }, paint: { "hillshade-exaggeration": 0.45, "hillshade-shadow-color": "#1b1b1b", "hillshade-highlight-color": "#ffffff" } }, firstSymbol);
     if (!map.getSource("mask")) map.addSource("mask", { type: "image", url: BLANK_PNG, coordinates: [[-1, 1], [1, 1], [1, -1], [-1, -1]] });
     if (!map.getLayer("mask")) map.addLayer({ id: "mask", type: "raster", source: "mask", layout: { visibility: layerPrefs.mask ? "visible" : "none" }, paint: { "raster-opacity": 0.55, "raster-resampling": "nearest", "raster-fade-duration": 0 } }, firstSymbol);
