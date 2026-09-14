@@ -254,6 +254,28 @@
     const i = layers.findIndex((l) => l.id === id);
     return i >= 0 && layers[i + 1] ? layers[i + 1].id : undefined;
   }
+  const FIREFOX = /Firefox\//.test(navigator.userAgent);
+  function patchTerrainPicking() {
+    if (!webgl || !FIREFOX || !map.terrain) return;
+    const version = (typeof maplibregl.getVersion === "function" && maplibregl.getVersion()) || "";
+    if (!/^5\./.test(version)) return;
+    const proto = Object.getPrototypeOf(map.terrain);
+    if (!proto || proto.__cpuPicking) return;
+    proto.__cpuPicking = true;
+    proto.pointCoordinate = function (p) {
+      const tr = this.painter && this.painter.transform;
+      if (!tr || typeof tr.screenPointToMercatorCoordinateAtZ !== "function") return null;
+      const flat = tr.screenPointToMercatorCoordinateAtZ(p);
+      if (!flat) return null;
+      try {
+        const ll = flat.toLngLat();
+        const elev = this.getElevationForLngLatZoom(ll, tr.tileZoom);
+        const z = maplibregl.MercatorCoordinate.fromLngLat(ll, elev).z;
+        return tr.screenPointToMercatorCoordinateAtZ(p, z) || flat;
+      } catch (e) { return flat; }
+    };
+    proto.depthAtPoint = function () { return 1; };
+  }
   function patchRasterAborts() {
     let sources = {};
     try { sources = map.getStyle().sources || {}; } catch (e) { return; }
@@ -402,6 +424,7 @@
     if (!map.getSource("mask")) map.addSource("mask", { type: "image", url: BLANK_PNG, coordinates: [[-1, 1], [1, 1], [1, -1], [-1, -1]] });
     if (!map.getLayer("mask")) map.addLayer({ id: "mask", type: "raster", source: "mask", layout: { visibility: layerPrefs.mask ? "visible" : "none" }, paint: { "raster-opacity": 0.55, "raster-resampling": "nearest", "raster-fade-duration": 0 } }, firstSymbol);
     map.setTerrain(layerPrefs.terrain ? { source: "dem-terrain", exaggeration: 1.2 } : null);
+    patchTerrainPicking();
     if (offlineActive()) { map.setLayoutProperty("mask", "visibility", "visible"); map.setPaintProperty("mask", "raster-opacity", 1); }
     if (layerPrefs.mask || offlineActive()) refreshMask();
     for (const [id, paint] of [
@@ -458,6 +481,7 @@
     if (map.getLayer("hillshade")) map.setLayoutProperty("hillshade", "visibility", layerPrefs.hillshade ? "visible" : "none");
     if (map.getLayer("mask")) { map.setLayoutProperty("mask", "visibility", layerPrefs.mask || offlineActive() ? "visible" : "none"); map.setPaintProperty("mask", "raster-opacity", offlineActive() ? 1 : 0.55); }
     if (map.getSource("dem-terrain")) map.setTerrain(layerPrefs.terrain ? { source: "dem-terrain", exaggeration: 1.2 } : null);
+    patchTerrainPicking();
     if (!layerPrefs.terrain) releaseSource("dem-terrain");
     if (!layerPrefs.hillshade && map.getLayer("hillshade")) releaseSource("dem", hillshadeSpec(), layerAfter("hillshade"));
     if (layerPrefs.mask || offlineActive()) refreshMask();
