@@ -210,7 +210,8 @@
       return OFFLINE_STYLE;
     }
   }
-  function styleCopy(st) { return JSON.parse(JSON.stringify(st)); }
+  function styleCopy(st) { const c = JSON.parse(JSON.stringify(st)); c.projection = { type: map.__projection || "globe" }; return c; }
+  function swapStyle(m, st) { if (m === map && m.getTerrain && m.getTerrain()) m.setTerrain(null); m.setStyle(styleCopy(st)); }
   function styleOf(m) { try { return m.getStyle(); } catch (e) { return null; } }
   function offlineActive() { const st = styleOf(map); return !!(st && st.metadata && st.metadata["coastline-twin"] === "offline"); }
   const overlays = {
@@ -456,9 +457,8 @@
     $("terrain-hint").hidden = !on;
     if (!webgl) return;
     if (on) {
-      if (!layerPrefs.hillshade && !layerPrefs.hillshade_offered) {
+      if (!layerPrefs.hillshade) {
         layerPrefs.hillshade = true;
-        layerPrefs.hillshade_offered = true;
         $("layer-hillshade").checked = true;
       }
       if (map.getZoom() >= 8 && map.getPitch() < 30) map.easeTo({ pitch: 55, duration: 800 });
@@ -532,7 +532,7 @@
     if (map.__styleKey !== key) {
       map.__styleKey = key;
       map.__projection = (map.getProjection && map.getProjection() || {}).type || map.__projection || "globe";
-      resolveStyle(scheme).then((st) => { if (map.__styleKey === key) map.setStyle(styleCopy(st)); });
+      resolveStyle(scheme).then((st) => { if (map.__styleKey === key) swapStyle(map, st); });
     }
     for (const cm of [compare.home, compare.match]) if (cm && cm.__styleKey !== key) { cm.__styleKey = key; resolveStyle(scheme).then((st) => { if (cm.__styleKey === key) cm.setStyle(styleCopy(st)); }); }
   }
