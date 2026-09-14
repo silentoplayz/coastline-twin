@@ -356,9 +356,20 @@
     }, 120);
   }
   if (webgl) {
-    map.on("mousemove", (e) => { $("map-status").hidden = false; status.point = e.point; if (!status.raf) status.raf = requestAnimationFrame(() => { status.raf = 0; updateStatus(status.point); }); });
-    map.getCanvas().addEventListener("mouseleave", () => updateStatus(null));
-    map.on("move", () => { status.eye.textContent = `eye alt ${fmtAlt(eyeAltitude())}`; updateScale(); });
+    const STATUS_MS = 120;
+    map.on("mousemove", (e) => {
+      $("map-status").hidden = false;
+      status.point = e.point;
+      if (status.timerMove) return;
+      const wait = Math.max(0, STATUS_MS - (performance.now() - (status.at || 0)));
+      status.timerMove = setTimeout(() => { status.timerMove = 0; status.at = performance.now(); updateStatus(status.point); }, wait);
+    });
+    map.getCanvas().addEventListener("mouseleave", () => { clearTimeout(status.timerMove); status.timerMove = 0; updateStatus(null); });
+    map.on("move", () => {
+      status.eye.textContent = `eye alt ${fmtAlt(eyeAltitude())}`;
+      if (!status.timerScale) status.timerScale = setTimeout(() => { status.timerScale = 0; updateScale(); }, 150);
+    });
+    map.on("moveend", updateScale);
     map.on("resize", updateScale);
     map.on("load", () => { updateStatus(null); updateScale(); });
   }
